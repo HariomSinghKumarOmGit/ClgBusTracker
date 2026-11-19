@@ -3256,9 +3256,9 @@
       "route_id": "ROUTE-01",
       "preferred_stop_id": "STOP-01",
       "is_tracking": true,
-      "is_waiting": false,
-      "is_boarded": true,
-      "last_active": "2026-11-19T17:08:12.115Z"
+      "is_waiting": true,
+      "is_boarded": false,
+      "last_active": "2026-11-19T17:15:16.179Z"
     },
     {
       "id": "STU-02",

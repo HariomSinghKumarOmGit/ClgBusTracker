@@ -1,7 +1,7 @@
 // api/routes.js
 // Vercel Serverless Function: Transit Routes
 
-const transitRoutes = [
+export const transitRoutes = [
   {
     id: "ROUTE-38",
     name: "Route 38: Glade Express",
