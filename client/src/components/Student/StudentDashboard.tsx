@@ -17,6 +17,7 @@ import {
   Clock,
   CheckCircle2,
   Phone,
+  GraduationCap,
   Info
 } from 'lucide-react';
 
@@ -103,7 +104,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <div className="relative w-full h-[100dvh] max-w-md mx-auto overflow-hidden bg-slate-900 select-none">
-      {/* 1. FULL-SCREEN INTERACTIVE MAP (Google Maps / Uber style base) */}
+      {/* 1. FULL-SCREEN INTERACTIVE MAP (Real Google Maps Tiles + Modern HUD) */}
       <div className="absolute inset-0 w-full h-full z-0">
         <BusMap
           bus={bus}
@@ -115,36 +116,36 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         />
       </div>
 
-      {/* 2. FLOATING TOP BAR (Mobile Island) */}
+      {/* 2. FLOATING TOP BAR (Dynamic Island Header for Delhi Technical Campus U5) */}
       <div className="absolute top-0 left-0 right-0 z-20 px-3 pt-3 pt-safe pointer-events-none">
-        <div className="bg-white/95 backdrop-blur-md rounded-2xl p-2.5 shadow-lg border border-slate-200/80 pointer-events-auto flex items-center justify-between">
-          {/* Left: Branding & Bus Tag */}
+        <div className="bg-white/95 backdrop-blur-md rounded-2xl p-2.5 shadow-xl border border-slate-200/90 pointer-events-auto flex items-center justify-between">
+          {/* Left: DTC Branding & Campus U5 Badge */}
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/25 shrink-0">
               <BusIcon className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <h1 className="text-xs font-black text-slate-900 tracking-tight truncate">
-                  DTC Bus Tracker
+                  Delhi Technical Campus
                 </h1>
-                <span className="text-[10px] font-extrabold bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded">
-                  BUS 01
+                <span className="text-[10px] font-black bg-gradient-to-r from-purple-700 to-indigo-700 text-amber-300 px-1.5 py-0.2 rounded shadow-xs border border-purple-500/40">
+                  U5
                 </span>
               </div>
-              <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-0.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${
                   bus?.status === 'MOVING' ? 'bg-emerald-500 animate-pulse' : bus?.status === 'STOPPED' ? 'bg-amber-500' : 'bg-slate-400'
                 }`}></span>
-                <span className="font-semibold text-slate-700">{bus?.status || 'IDLE'}</span>
+                <span className="font-bold text-slate-800">{bus?.status === 'MOVING' ? 'LIVE TRACKING' : (bus?.status || 'IDLE')}</span>
                 {bus?.last_known_location && bus.last_known_location.speed_kmh > 0 && (
-                  <span>• {Math.round(bus.last_known_location.speed_kmh)} km/h</span>
+                  <span className="text-blue-600 font-extrabold">• {Math.round(bus.last_known_location.speed_kmh)} km/h</span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Right: Notification & Profile triggers */}
+          {/* Right: Notifications & Profile */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={onOpenNotifications}
@@ -171,11 +172,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
         </div>
 
-        {/* Floating Quick ETA Pill */}
-        <div className="mt-2 flex items-center justify-between bg-slate-900/90 text-white backdrop-blur-md rounded-xl px-3 py-1.5 shadow-md border border-slate-800 text-xs pointer-events-auto">
+        {/* Floating Quick ETA & Next Stoppage Pill */}
+        <div className="mt-2 flex items-center justify-between bg-slate-950/90 text-white backdrop-blur-md rounded-xl px-3 py-1.5 shadow-md border border-slate-800 text-xs pointer-events-auto">
           <div className="flex items-center gap-1.5 truncate pr-2">
             <Navigation className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            <span className="text-[11px] text-slate-300">Next:</span>
+            <span className="text-[10px] text-slate-400 font-medium">Next:</span>
             <span className="font-bold text-white truncate text-[11px]">
               {nextStop ? nextStop.name : 'Saket Terminal'}
             </span>
@@ -189,9 +190,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       </div>
 
-      {/* 3. SLIDING BOTTOM SHEET (Uber / Google Maps Mobile Sheet) */}
+      {/* 3. SLIDING MOBILE BOTTOM SHEET (Google Maps / Uber Sheet) */}
       <div 
-        className={`absolute left-0 right-0 bottom-0 z-30 bg-white rounded-t-3xl shadow-[0_-8px_30px_rgba(0,0,0,0.18)] border-t border-slate-200 flex flex-col bottom-sheet ${
+        className={`absolute left-0 right-0 bottom-0 z-30 bg-white rounded-t-3xl shadow-[0_-8px_30px_rgba(0,0,0,0.22)] border-t border-slate-200 flex flex-col bottom-sheet ${
           sheetState === 'expanded' ? 'h-[75vh]' : 'h-[175px]'
         }`}
       >
@@ -200,28 +201,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           onClick={() => setSheetState(s => s === 'collapsed' ? 'expanded' : 'collapsed')}
           className="pt-2 pb-1.5 px-4 flex flex-col items-center justify-center cursor-pointer active:bg-slate-50 rounded-t-3xl border-b border-slate-100 select-none"
         >
-          {/* Grab Pill Bar */}
+          {/* Grab Bar */}
           <div className="w-10 h-1 bg-slate-300 rounded-full mb-1"></div>
 
           <div className="w-full flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-extrabold text-slate-900">
-                {sheetState === 'expanded' ? 'Route Details & Stoppages' : 'Live Trip & Attendance'}
+              <span className="text-[11px] font-black text-slate-900">
+                {sheetState === 'expanded' ? 'Route 01 (U5) • Stoppages' : 'Live Attendance & ETA'}
               </span>
-              <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-semibold">
-                {activity?.active_trackers || 0} tracking
+              <span className="text-[10px] bg-purple-50 text-purple-700 font-bold px-1.5 py-0.2 rounded border border-purple-200">
+                To DTC (U5)
               </span>
             </div>
 
-            <div className="flex items-center gap-1 text-blue-600 font-bold text-[11px]">
+            <div className="flex items-center gap-1 text-blue-600 font-black text-[11px]">
               <span>{sheetState === 'expanded' ? 'Collapse Map' : 'View All Stops'}</span>
               {sheetState === 'expanded' ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </div>
         </div>
 
-        {/* Peek Content (Always Visible in Peek State) */}
-        <div className="p-3 border-b border-slate-100 bg-slate-50/60 shrink-0">
+        {/* Peek Buttons (Visible in Peek Mode) */}
+        <div className="p-3 border-b border-slate-100 bg-slate-50/70 shrink-0">
           <div className="grid grid-cols-2 gap-2">
             {/* Quick I'm Waiting Button */}
             <button
@@ -280,18 +281,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             bus={bus}
           />
 
-          {/* Driver Contact & College Helpline */}
-          <div className="bg-slate-100 rounded-2xl p-3 text-xs text-slate-600 flex items-center justify-between border border-slate-200">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-slate-500" />
+          {/* Delhi Technical Campus (U5) Info & Helpline */}
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-3.5 text-xs text-purple-950 flex items-center justify-between border border-purple-200 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-purple-600 text-amber-300 flex items-center justify-center font-bold shrink-0">
+                <GraduationCap className="w-4 h-4" />
+              </div>
               <div>
-                <span className="font-bold text-slate-800 block">DTC Transport Helpline</span>
-                <span className="text-[10px] text-slate-500">Knowledge Park III, Greater Noida</span>
+                <span className="font-extrabold text-slate-900 block">Delhi Technical Campus (U5)</span>
+                <span className="text-[10px] text-purple-800">28/1, Knowledge Park III, Greater Noida</span>
               </div>
             </div>
             <a
               href="tel:+919811234567"
-              className="px-3 py-1.5 bg-white text-blue-600 font-bold rounded-xl border border-slate-200 shadow-xs flex items-center gap-1"
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 text-[11px]"
             >
               <Phone className="w-3 h-3" />
               <span>Call</span>

@@ -1,15 +1,15 @@
 // client/src/services/api.ts
-import { Bus, BusRoute, RouteStop, Trip, PassengerActivity, StudentProfile, Driver, AppNotification, NetworkInfo } from '../types';
+import { Bus, BusRoute, RouteStop, Trip, PassengerActivity, StudentProfile, Driver, BusScheduleRecord, AppNotification, NetworkInfo } from '../types';
 
 const API_BASE = '/api';
 
 const FALLBACK_ROUTE: BusRoute = {
   id: 'ROUTE-01',
-  name: 'Route 01: Saket → Delhi Technical Campus',
+  name: 'Route 01: Saket → Delhi Technical Campus (U5)',
   code: 'R01',
-  description: 'Saket, Delhi to Delhi Technical Campus, Greater Noida (Noida Side)',
+  description: 'Saket, Delhi to Delhi Technical Campus (U5), Knowledge Park III, Greater Noida (Noida Side)',
   start_point: 'Saket, Delhi',
-  end_point: 'Delhi Technical Campus, Greater Noida',
+  end_point: 'Delhi Technical Campus (U5), Greater Noida',
   distance_km: 54.1,
   duration_mins: 65,
   is_active: true,
@@ -22,7 +22,7 @@ const FALLBACK_STOPS: RouteStop[] = [
   { id: 'STOP-03', route_id: 'ROUTE-01', sequence_order: 3, name: 'Stop 03 (Placeholder)', description: 'Near Mahamaya Flyover / Sector 18 entry', latitude: 28.5583, longitude: 77.3352, scheduled_time: '08:05 AM', is_terminal: false },
   { id: 'STOP-04', route_id: 'ROUTE-01', sequence_order: 4, name: 'Stop 04 (Placeholder)', description: 'Noida Expressway (near Sector 128 / 137)', latitude: 28.5132, longitude: 77.3821, scheduled_time: '08:25 AM', is_terminal: false },
   { id: 'STOP-05', route_id: 'ROUTE-01', sequence_order: 5, name: 'Stop 05 (Placeholder)', description: 'Pari Chowk Interchange, Greater Noida', latitude: 28.4735, longitude: 77.4789, scheduled_time: '08:45 AM', is_terminal: false },
-  { id: 'STOP-06', route_id: 'ROUTE-01', sequence_order: 6, name: 'Delhi Technical Campus (Destination)', description: 'Knowledge Park III, Greater Noida', latitude: 28.4633, longitude: 77.4912, scheduled_time: '09:00 AM', is_terminal: true }
+  { id: 'STOP-06', route_id: 'ROUTE-01', sequence_order: 6, name: 'Delhi Technical Campus (U5)', description: 'Knowledge Park III, Greater Noida (College Destination)', latitude: 28.4633, longitude: 77.4912, scheduled_time: '09:00 AM', is_terminal: true }
 ];
 
 const FALLBACK_BUS: Bus = {
@@ -45,7 +45,65 @@ const FALLBACK_BUS: Bus = {
 };
 
 const FALLBACK_DRIVERS: Driver[] = [
-  { id: 'DRV-01', name: 'Rajesh Kumar', phone: '+91 98112 34567', assigned_bus_id: 'BUS-01' }
+  {
+    id: "DRV-3801",
+    name: "Rajesh Kumar",
+    phone: "+91 98112 34567",
+    license_no: "DL-042022-7891",
+    assigned_bus_id: "BUS-38",
+    bus_plate: "DL 1P B 3838",
+    bus_number: "Bus 38",
+    rating: 4.9,
+    status: "ON_DUTY",
+    experience_years: 8,
+    avatar_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+    emergency_contact: "+91 98112 34500",
+    blood_group: "O+",
+    shift: "Morning Express (06:00 - 14:00)"
+  },
+  {
+    id: "DRV-2101",
+    name: "Somchai Prasert",
+    phone: "+66 81 234 5678",
+    license_no: "TH-9821-4412",
+    assigned_bus_id: "BUS-21",
+    bus_plate: "16-1270 5-70016",
+    bus_number: "Bus 21",
+    rating: 4.85,
+    status: "ON_DUTY",
+    experience_years: 11,
+    avatar_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
+    emergency_contact: "+66 81 234 9999",
+    blood_group: "B+",
+    shift: "Day Shift (07:00 - 15:30)"
+  }
+];
+
+const FALLBACK_SCHEDULES: BusScheduleRecord[] = [
+  {
+    id: "SCH-3801",
+    route_name: "Route 38: Southbound to Glade",
+    route_code: "38",
+    bus_number: "Bus 38",
+    driver_name: "Rajesh Kumar",
+    departure_time: "08:00 AM",
+    arrival_time: "08:42 AM",
+    status: "COMPLETED",
+    passengers_served: 42,
+    terminal_notes: "Arrived on schedule at Glade Central Terminal"
+  },
+  {
+    id: "SCH-2101",
+    route_name: "Route 21: Victory Monument → Siam Square",
+    route_code: "21",
+    bus_number: "Bus 21",
+    driver_name: "Somchai Prasert",
+    departure_time: "08:15 AM",
+    arrival_time: "08:58 AM",
+    status: "COMPLETED",
+    passengers_served: 38,
+    terminal_notes: "Completed run to Siam Square"
+  }
 ];
 
 function getLocalItem<T>(key: string, defaultValue: T): T {
@@ -442,5 +500,100 @@ export const api = {
       message,
       created_at: new Date().toISOString()
     };
+  },
+
+  async addDriver(driver: Partial<Driver>): Promise<Driver> {
+    try {
+      const res = await fetch(`${API_BASE}/drivers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(driver)
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+
+    const drivers = await this.getDrivers();
+    const newDriver: Driver = {
+      id: `DRV-${Date.now().toString(36).toUpperCase()}`,
+      name: driver.name || 'New Driver',
+      phone: driver.phone || '+91 99999 88888',
+      license_no: driver.license_no || 'DL-2024-NEW',
+      assigned_bus_id: driver.assigned_bus_id || 'BUS-38',
+      bus_plate: driver.bus_plate || 'DL 1P B 3838',
+      bus_number: driver.bus_number || 'Bus 38',
+      rating: 5.0,
+      status: driver.status || 'ON_DUTY',
+      experience_years: driver.experience_years || 4,
+      avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(driver.name || 'driver')}`,
+      emergency_contact: driver.emergency_contact || driver.phone,
+      blood_group: driver.blood_group || 'O+',
+      shift: driver.shift || 'Morning Shift'
+    };
+    drivers.unshift(newDriver);
+    setLocalItem('dtc_cached_drivers', drivers);
+    return newDriver;
+  },
+
+  async updateDriver(id: string, updates: Partial<Driver>): Promise<Driver> {
+    try {
+      const res = await fetch(`${API_BASE}/drivers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+
+    const drivers = await this.getDrivers();
+    const index = drivers.findIndex(d => d.id === id);
+    if (index !== -1) {
+      drivers[index] = { ...drivers[index], ...updates };
+      setLocalItem('dtc_cached_drivers', drivers);
+      return drivers[index];
+    }
+    throw new Error('Driver not found');
+  },
+
+  // Schedules (Starting and Arrival Time ONLY permanently stored)
+  async getSchedules(): Promise<BusScheduleRecord[]> {
+    try {
+      const res = await fetch(`${API_BASE}/schedules`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.schedules && Array.isArray(data.schedules)) return data.schedules;
+      }
+    } catch (e) {}
+    return getLocalItem('dtc_cached_schedules', FALLBACK_SCHEDULES);
+  },
+
+  async addSchedule(record: Partial<BusScheduleRecord>): Promise<BusScheduleRecord> {
+    try {
+      const res = await fetch(`${API_BASE}/schedules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.record) return data.record;
+      }
+    } catch (e) {}
+
+    const schedules = await this.getSchedules();
+    const newRecord: BusScheduleRecord = {
+      id: `SCH-${Date.now().toString(36).toUpperCase()}`,
+      route_name: record.route_name || 'Route 38: Southbound to Glade',
+      route_code: record.route_code || '38',
+      bus_number: record.bus_number || 'Bus 38',
+      driver_name: record.driver_name || 'Assigned Driver',
+      departure_time: record.departure_time || '08:00 AM',
+      arrival_time: record.arrival_time || '08:42 AM',
+      status: record.status || 'COMPLETED',
+      passengers_served: record.passengers_served || 38,
+      terminal_notes: record.terminal_notes || 'Recorded departure and arrival log'
+    };
+    schedules.unshift(newRecord);
+    setLocalItem('dtc_cached_schedules', schedules);
+    return newRecord;
   }
 };
