@@ -5,24 +5,24 @@ const API_BASE = '/api';
 
 const FALLBACK_ROUTE: BusRoute = {
   id: 'ROUTE-01',
-  name: 'Route 01: Saket → Delhi Technical Campus (U5)',
+  name: 'Route 01: Saket → Delhi Technical Campus',
   code: 'R01',
-  description: 'Saket, Delhi to Delhi Technical Campus (U5), Knowledge Park III, Greater Noida (Noida Side)',
+  description: 'Saket, Delhi to Delhi Technical Campus, 28/1 Knowledge Park III, Greater Noida',
   start_point: 'Saket, Delhi',
-  end_point: 'Delhi Technical Campus (U5), Greater Noida',
-  distance_km: 54.1,
-  duration_mins: 65,
+  end_point: 'Delhi Technical Campus, Greater Noida',
+  distance_km: 50.5,
+  duration_mins: 61,
   is_active: true,
   polyline: []
 };
 
 const FALLBACK_STOPS: RouteStop[] = [
   { id: 'STOP-01', route_id: 'ROUTE-01', sequence_order: 1, name: 'Saket (Starting Point)', description: 'Saket Metro / Press Enclave Rd', latitude: 28.5204, longitude: 77.2014, scheduled_time: '07:30 AM', is_terminal: false },
-  { id: 'STOP-02', route_id: 'ROUTE-01', sequence_order: 2, name: 'Stop 02 (Placeholder)', description: 'Near Kalindi Kunj / Sarita Vihar transit', latitude: 28.5447, longitude: 77.2648, scheduled_time: '07:50 AM', is_terminal: false },
-  { id: 'STOP-03', route_id: 'ROUTE-01', sequence_order: 3, name: 'Stop 03 (Placeholder)', description: 'Near Mahamaya Flyover / Sector 18 entry', latitude: 28.5583, longitude: 77.3352, scheduled_time: '08:05 AM', is_terminal: false },
-  { id: 'STOP-04', route_id: 'ROUTE-01', sequence_order: 4, name: 'Stop 04 (Placeholder)', description: 'Noida Expressway (near Sector 128 / 137)', latitude: 28.5132, longitude: 77.3821, scheduled_time: '08:25 AM', is_terminal: false },
-  { id: 'STOP-05', route_id: 'ROUTE-01', sequence_order: 5, name: 'Stop 05 (Placeholder)', description: 'Pari Chowk Interchange, Greater Noida', latitude: 28.4735, longitude: 77.4789, scheduled_time: '08:45 AM', is_terminal: false },
-  { id: 'STOP-06', route_id: 'ROUTE-01', sequence_order: 6, name: 'Delhi Technical Campus (U5)', description: 'Knowledge Park III, Greater Noida (College Destination)', latitude: 28.4633, longitude: 77.4912, scheduled_time: '09:00 AM', is_terminal: true }
+  { id: 'STOP-02', route_id: 'ROUTE-01', sequence_order: 2, name: 'Stop 02 (Kalindi Kunj)', description: 'Near Kalindi Kunj / Sarita Vihar transit', latitude: 28.5447, longitude: 77.2648, scheduled_time: '07:50 AM', is_terminal: false },
+  { id: 'STOP-03', route_id: 'ROUTE-01', sequence_order: 3, name: 'Stop 03 (Mahamaya Flyover)', description: 'Near Mahamaya Flyover / Sector 18 entry', latitude: 28.5583, longitude: 77.3352, scheduled_time: '08:05 AM', is_terminal: false },
+  { id: 'STOP-04', route_id: 'ROUTE-01', sequence_order: 4, name: 'Stop 04 (Noida Expressway)', description: 'Noida Expressway (near Sector 128 / 137)', latitude: 28.5132, longitude: 77.3821, scheduled_time: '08:25 AM', is_terminal: false },
+  { id: 'STOP-05', route_id: 'ROUTE-01', sequence_order: 5, name: 'Stop 05 (Pari Chowk)', description: 'Pari Chowk Interchange, Greater Noida', latitude: 28.4735, longitude: 77.4789, scheduled_time: '08:45 AM', is_terminal: false },
+  { id: 'STOP-06', route_id: 'ROUTE-01', sequence_order: 6, name: 'Delhi Technical Campus', description: '28/1, Knowledge Park III, Greater Noida (College Destination)', latitude: 28.47478, longitude: 77.476134, scheduled_time: '09:00 AM', is_terminal: true }
 ];
 
 const FALLBACK_BUS: Bus = {

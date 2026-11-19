@@ -61,9 +61,10 @@ export interface BusRoute {
   distance_km: number;
   duration_mins: number;
   is_active: boolean;
-  polyline: [number, number][]; // [latitude, longitude]
+  polyline: [number, number][];
   vehicle_plate?: string;
   color?: string;
+  stops?: RouteStop[];
 }
 
 export interface Trip {
@@ -106,17 +107,17 @@ export interface StudentProfile {
   is_boarded: boolean;
 }
 
-// Driver details stored on Vercel backend
+// Driver Details - Stored on Vercel Backend
 export interface Driver {
   id: string;
   name: string;
   phone: string;
+  license_no: string;
   assigned_bus_id: string;
-  license_no?: string;
-  bus_plate?: string;
-  bus_number?: string;
-  rating?: number;
-  status?: string;
+  bus_plate: string;
+  bus_number: string;
+  rating: number;
+  status: 'ON_DUTY' | 'OFF_DUTY' | 'ON_BREAK';
   experience_years?: number;
   avatar_url?: string;
   emergency_contact?: string;
@@ -126,7 +127,7 @@ export interface Driver {
 }
 
 // Permanent Schedule Times - Stored on Vercel Backend
-// STRICT PRIVACY: ONLY starting and arrival time stored permanently. ZERO GPS coordinates or tracking logs!
+// STRICT PRIVACY: ONLY starting (departure) and arrival time stored permanently. ZERO GPS logs or route records stored!
 export interface BusScheduleRecord {
   id: string;
   route_name: string;
@@ -141,7 +142,7 @@ export interface BusScheduleRecord {
   created_at?: string;
 }
 
-// User Profile stored locally in browser LocalStorage
+// User Profile - Stored locally in browser LocalStorage
 export interface UserProfile {
   id: string;
   name: string;

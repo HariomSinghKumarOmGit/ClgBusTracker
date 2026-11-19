@@ -1,20 +1,22 @@
 // client/src/components/Map/BusMap.tsx
 import React, { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { Bus, BusRoute, RouteStop } from '../../types';
-import { createBusMarkerIcon, createStopMarkerIcon, createCampusU5MarkerIcon } from './CustomMarkers';
+import { createBusMarkerIcon, createStopMarkerIcon } from './CustomMarkers';
 import { 
   Navigation, 
   Maximize2, 
-  Layers, 
   GraduationCap, 
-  Map as MapIcon, 
-  Satellite, 
-  Moon, 
-  Compass,
   AlertCircle
 } from 'lucide-react';
+import { MapTheme, DEFAULT_MAP_THEME } from './mapConfig';
+import { 
+  GoogleMapTileLayer, 
+  GoogleMapZoomButtons, 
+  GoogleMapLayerSelector, 
+  LiveTrafficBadge 
+} from './MapControls';
 
 interface BusMapProps {
   bus: Bus | null;
@@ -27,39 +29,9 @@ interface BusMapProps {
   waitingPerStop?: Record<string, number>;
 }
 
-type MapTheme = 'google-streets' | 'google-satellite' | 'carto-voyager' | 'dark-night';
-
-const TILE_LAYERS: Record<MapTheme, { name: string; url: string; subdomains?: string[]; maxZoom: number; attribution: string }> = {
-  'google-streets': {
-    name: 'Google Maps',
-    url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-    maxZoom: 20,
-    attribution: '&copy; Google Maps'
-  },
-  'google-satellite': {
-    name: 'Satellite',
-    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    maxZoom: 20,
-    attribution: '&copy; Google Satellite Imagery'
-  },
-  'carto-voyager': {
-    name: 'Clean Transit',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    subdomains: ['a', 'b', 'c', 'd'],
-    maxZoom: 19,
-    attribution: '&copy; CARTO &copy; OpenStreetMap'
-  },
-  'dark-night': {
-    name: 'Night Mode',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    subdomains: ['a', 'b', 'c', 'd'],
-    maxZoom: 19,
-    attribution: '&copy; CARTO Dark &copy; OpenStreetMap'
-  }
-};
-
-// Delhi Technical Campus (U5) Coordinates in Knowledge Park III, Greater Noida
-const DTC_CAMPUS_COORDS: [number, number] = [28.4633, 77.4912];
+// Delhi Technical Campus Coordinates in Knowledge Park III, Greater Noida
+// Official: 28/1, Knowledge Park-III, Greater Noida - 201306 (U.P.)
+const DTC_CAMPUS_COORDS: [number, number] = [28.47478, 77.476134];
 
 // Controller for programmatic map zooming and panning
 function MapViewController({
@@ -141,9 +113,9 @@ export const BusMap: React.FC<BusMapProps> = ({
   onMapClickCoord,
   waitingPerStop = {}
 }) => {
-  // Map Layer Style state (Default: Google Maps Streets)
-  const [mapTheme, setMapTheme] = useState<MapTheme>('google-streets');
-  const [showLayerSelector, setShowLayerSelector] = useState(false);
+  // Map Layer Style state (Default: Google Maps Live Traffic)
+  const [mapTheme, setMapTheme] = useState<MapTheme>(DEFAULT_MAP_THEME);
+  const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
   // Trigger counters
   const [recenterCount, setRecenterCount] = useState(0);
@@ -151,29 +123,28 @@ export const BusMap: React.FC<BusMapProps> = ({
   const [focusCampusCount, setFocusCampusCount] = useState(0);
 
   const busLocation = bus?.last_known_location;
-  const currentTileConfig = TILE_LAYERS[mapTheme];
 
   // Determine current/next stop
   const currentStopId = bus?.status === 'MOVING' || bus?.status === 'STOPPED' 
     ? stops.find(s => s.status === 'current')?.id 
     : null;
 
+  const handleToggleTraffic = () => {
+    setMapTheme(prev => prev === 'google-traffic' ? 'google-streets' : 'google-traffic');
+  };
+
   return (
     <div className="relative w-full h-full min-h-[350px] overflow-hidden bg-slate-900 select-none">
       <MapContainer
+        ref={setMapInstance}
         center={DTC_CAMPUS_COORDS}
         zoom={12}
+        maxZoom={21}
         zoomControl={false}
         className="w-full h-full"
       >
-        {/* Real Google Maps Tile Layer with live layer switching */}
-        <TileLayer
-          key={mapTheme}
-          url={currentTileConfig.url}
-          subdomains={currentTileConfig.subdomains || []}
-          maxZoom={currentTileConfig.maxZoom}
-          attribution={currentTileConfig.attribution}
-        />
+        {/* Real Live Google Maps Tile Layer with live congestion and multi-threading */}
+        <GoogleMapTileLayer theme={mapTheme} />
 
         <MapViewController
           bus={bus}
@@ -263,15 +234,28 @@ export const BusMap: React.FC<BusMapProps> = ({
                       </span>
                     )}
                     <h4 className="font-extrabold text-sm leading-tight">
-                      {isTerminal ? 'Delhi Technical Campus (U5)' : stop.name}
+                      {isTerminal ? 'Delhi Technical Campus' : stop.name}
                     </h4>
                   </div>
 
-                  <p className="text-xs text-slate-500 mb-1.5">
+                  <p className="text-xs text-slate-500 mb-1">
                     {isTerminal 
-                      ? '28/1, Knowledge Park III, Greater Noida, UP' 
+                      ? '28/1, Knowledge Park III, Greater Noida, UP - 201306' 
                       : (stop.description || 'Route 01 Transit Stoppage')}
                   </p>
+
+                  {isTerminal && (
+                    <div className="mb-1.5">
+                      <a
+                        href="https://delhitechnicalcampus.ac.in/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline"
+                      >
+                        <span>🌐 delhitechnicalcampus.ac.in</span>
+                      </a>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between text-xs py-1 border-t border-slate-100 font-medium">
                     <span className="text-slate-500">Scheduled:</span>
@@ -339,7 +323,7 @@ export const BusMap: React.FC<BusMapProps> = ({
                   </div>
                   <div className="flex justify-between text-[11px] text-slate-400 pt-1">
                     <span>Route:</span>
-                    <span className="font-semibold text-slate-700">Saket ➔ DTC (U5)</span>
+                    <span className="font-semibold text-slate-700">Saket ➔ Delhi Technical Campus</span>
                   </div>
                   <div className="flex justify-between text-[11px] text-slate-400">
                     <span>Plate:</span>
@@ -353,7 +337,13 @@ export const BusMap: React.FC<BusMapProps> = ({
       </MapContainer>
 
       {/* Floating Speed & Status Badge Overlay */}
-      <div className="absolute top-16 left-3 z-[400] flex items-center gap-2">
+      <div className="absolute top-16 left-3 z-[400] flex flex-wrap items-center gap-2">
+        <LiveTrafficBadge
+          isTrafficActive={mapTheme === 'google-traffic' || mapTheme === 'google-terrain'}
+          onToggle={handleToggleTraffic}
+          speedKmh={busLocation?.speed_kmh}
+        />
+
         <div className="flex items-center gap-2 px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200/90 text-xs font-bold text-slate-800">
           <span
             className={`w-2.5 h-2.5 rounded-full ${
@@ -365,66 +355,21 @@ export const BusMap: React.FC<BusMapProps> = ({
             }`}
           ></span>
           <span>{bus?.status === 'MOVING' ? 'LIVE GPS' : bus?.status === 'STOPPED' ? 'AT STOP' : 'IDLE'}</span>
-          {busLocation && busLocation.speed_kmh > 0 && (
-            <span className="text-blue-600 font-black border-l border-slate-200 pl-2">
-              {Math.round(busLocation.speed_kmh)} km/h
-            </span>
-          )}
         </div>
       </div>
 
       {/* Floating Action Controls on Right Side (Google Maps style) */}
       <div className="absolute top-16 right-3 z-[400] flex flex-col gap-2">
-        {/* Layer Switcher Button */}
-        <div className="relative">
-          <button
-            onClick={() => setShowLayerSelector(!showLayerSelector)}
-            title="Change Map Style (Google Maps, Satellite, Night)"
-            className="w-10 h-10 bg-white/95 backdrop-blur-md hover:bg-slate-50 text-slate-800 active:scale-95 rounded-2xl shadow-lg border border-slate-200 flex items-center justify-center transition-all"
-          >
-            <Layers className="w-5 h-5 text-blue-600" />
-          </button>
+        {/* Layer Switcher with Google Live Traffic */}
+        <GoogleMapLayerSelector 
+          currentTheme={mapTheme} 
+          onSelectTheme={setMapTheme} 
+        />
 
-          {/* Layer Selection Dropdown Menu */}
-          {showLayerSelector && (
-            <div className="absolute top-0 right-12 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200 p-2 min-w-[150px] space-y-1 animate-fadeIn">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-2 py-0.5 block">
-                Map Style
-              </span>
-              {[
-                { id: 'google-streets', label: 'Google Maps', icon: MapIcon },
-                { id: 'google-satellite', label: 'Satellite 3D', icon: Satellite },
-                { id: 'carto-voyager', label: 'Clean Transit', icon: Layers },
-                { id: 'dark-night', label: 'Night Cyber', icon: Moon }
-              ].map((style) => {
-                const Icon = style.icon;
-                const active = mapTheme === style.id;
-                return (
-                  <button
-                    key={style.id}
-                    onClick={() => {
-                      setMapTheme(style.id as MapTheme);
-                      setShowLayerSelector(false);
-                    }}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                      active
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{style.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* 1-Tap Focus on Campus (U5) Button */}
+        {/* 1-Tap Focus on Delhi Technical Campus Button */}
         <button
           onClick={() => setFocusCampusCount(c => c + 1)}
-          title="Focus on Delhi Technical Campus (U5)"
+          title="Focus on Delhi Technical Campus"
           className="w-10 h-10 bg-gradient-to-tr from-purple-700 to-purple-600 hover:from-purple-600 hover:to-purple-500 text-white active:scale-95 rounded-2xl shadow-lg border border-purple-400/40 flex items-center justify-center transition-all group"
         >
           <GraduationCap className="w-5 h-5 text-amber-300 drop-shadow group-hover:scale-110 transition-transform" />
@@ -447,6 +392,9 @@ export const BusMap: React.FC<BusMapProps> = ({
         >
           <Maximize2 className="w-4 h-4" />
         </button>
+
+        {/* Modern Google Maps Zoom In / Zoom Out Controls */}
+        <GoogleMapZoomButtons map={mapInstance} className="mt-1" />
       </div>
 
       {/* Admin Mode Tap Hint */}

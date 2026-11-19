@@ -207,10 +207,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="w-full flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-black text-slate-900">
-                {sheetState === 'expanded' ? 'Route 01 (U5) • Stoppages' : 'Live Attendance & ETA'}
+                {sheetState === 'expanded' ? 'Route 01 • Stoppages' : 'Live Attendance & ETA'}
               </span>
               <span className="text-[10px] bg-purple-50 text-purple-700 font-bold px-1.5 py-0.2 rounded border border-purple-200">
-                To DTC (U5)
+                To Delhi Technical Campus
               </span>
             </div>
 
@@ -281,19 +281,26 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             bus={bus}
           />
 
-          {/* Delhi Technical Campus (U5) Info & Helpline */}
+          {/* Delhi Technical Campus Info & Helpline */}
           <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-3.5 text-xs text-purple-950 flex items-center justify-between border border-purple-200 shadow-xs">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-purple-600 text-amber-300 flex items-center justify-center font-bold shrink-0">
                 <GraduationCap className="w-4 h-4" />
               </div>
               <div>
-                <span className="font-extrabold text-slate-900 block">Delhi Technical Campus (U5)</span>
+                <a
+                  href="https://delhitechnicalcampus.ac.in/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-extrabold text-slate-900 block hover:text-purple-700 hover:underline"
+                >
+                  Delhi Technical Campus
+                </a>
                 <span className="text-[10px] text-purple-800">28/1, Knowledge Park III, Greater Noida</span>
               </div>
             </div>
             <a
-              href="tel:+919811234567"
+              href="tel:+919205752300"
               className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 text-[11px]"
             >
               <Phone className="w-3 h-3" />

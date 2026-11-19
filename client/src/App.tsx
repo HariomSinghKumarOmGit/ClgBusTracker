@@ -1,454 +1,184 @@
 // client/src/App.tsx
-import React, { useState, useEffect, useRef } from 'react';
-import { UserRole, Bus, BusRoute, RouteStop, Trip, PassengerActivity, StudentProfile, Driver, AppNotification, NetworkInfo } from './types';
+import React, { useState, useEffect } from 'react';
+import { NavTab, Bus, BusRoute, RouteStop, Driver, UserProfile } from './types';
 import { api } from './services/api';
-import { socket } from './services/socket';
-import { Navbar } from './components/Navbar';
-import { StudentDashboard } from './components/Student/StudentDashboard';
-import { DriverDashboard } from './components/Driver/DriverDashboard';
-import { AdminDashboard } from './components/Admin/AdminDashboard';
-import { NotificationCenter } from './components/Modals/NotificationCenter';
-import { InstallPWAModal } from './components/Modals/InstallPWAModal';
-import { NetworkQRCodeModal } from './components/Modals/NetworkQRCodeModal';
-import { StudentProfileModal } from './components/Modals/StudentProfileModal';
-import { AuthModal } from './components/Modals/AuthModal';
+import { HomeView } from './components/Home/HomeView';
+import { TransitExploreView } from './components/Map/TransitExploreView';
+import { DriverDetailsView } from './components/Driver/DriverDetailsView';
+import { ProfileView } from './components/Profile/ProfileView';
+import { BottomNavBar } from './components/Navigation/BottomNavBar';
+import { RideAlertsModal } from './components/Modals/RideAlertsModal';
 
-// Web Audio API chime generator for bus alerts
-function playChime(type: 'start' | 'near' | 'board') {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+const DEFAULT_ROUTE_01: BusRoute = {
+  id: 'ROUTE-01',
+  name: 'Route 01: Saket → Delhi Technical Campus',
+  code: '01',
+  description: 'Saket, Delhi to Delhi Technical Campus, 28/1 Knowledge Park III, Greater Noida',
+  direction: '➔ Eastbound to Delhi Technical Campus',
+  start_point: 'Saket, Delhi',
+  end_point: 'Delhi Technical Campus, Greater Noida',
+  distance_km: 50.5,
+  duration_mins: 61,
+  is_active: true,
+  vehicle_plate: 'DL 1P B 4022',
+  polyline: [[28.520722, 77.201514], [28.520769, 77.201342], [28.520818, 77.201066], [28.520947, 77.200691], [28.520972, 77.200619], [28.521183, 77.200153], [28.521558, 77.199243], [28.521751, 77.198775], [28.522159, 77.197477], [28.522256, 77.197135], [28.522308, 77.196853], [28.522329, 77.196722], [28.522339, 77.196541], [28.522338, 77.196477], [28.522337, 77.196411], [28.522462, 77.19641], [28.522467, 77.196553], [28.522466, 77.196805], [28.522426, 77.197003], [28.522279, 77.197526], [28.521888, 77.198785], [28.521874, 77.198826], [28.521022, 77.200764], [28.520956, 77.201019], [28.520858, 77.201383], [28.520577, 77.202564], [28.520552, 77.202674], [28.520515, 77.202866], [28.520331, 77.203767], [28.520306, 77.203884], [28.520282, 77.203989], [28.520114, 77.204744], [28.520012, 77.205277], [28.519999, 77.205447], [28.51993, 77.205819], [28.519922, 77.205852], [28.51986, 77.206123], [28.51979, 77.206384], [28.519639, 77.206942], [28.519468, 77.207734], [28.519424, 77.207935], [28.519176, 77.20908], [28.519047, 77.209948], [28.518882, 77.210478], [28.518862, 77.210591], [28.518732, 77.211107], [28.518493, 77.212224], [28.518407, 77.212624], [28.518187, 77.213706], [28.518072, 77.21439], [28.518064, 77.214541], [28.518028, 77.214905], [28.517977, 77.215323], [28.517959, 77.215408], [28.517905, 77.215806], [28.517681, 77.21689], [28.517638, 77.217096], [28.517408, 77.218212], [28.517187, 77.219282], [28.516981, 77.220276], [28.516956, 77.22041], [28.516677, 77.221621], [28.516623, 77.221853], [28.516529, 77.222294], [28.516434, 77.222789], [28.516368, 77.223116], [28.516339, 77.223256], [28.516285, 77.223526], [28.516226, 77.223768], [28.516111, 77.224226], [28.51608, 77.224384], [28.51607, 77.224434], [28.516062, 77.224478], [28.515783, 77.226026], [28.51581, 77.226114], [28.515816, 77.226148], [28.515817, 77.226183], [28.515815, 77.22643], [28.515816, 77.226463], [28.515822, 77.226497], [28.515833, 77.226525], [28.515848, 77.226549], [28.515867, 77.226571], [28.515885, 77.226585], [28.51594, 77.226625], [28.515941, 77.226625], [28.51617, 77.226654], [28.516549, 77.226715], [28.517753, 77.227051], [28.518292, 77.227282], [28.520035, 77.228025], [28.520745, 77.228375], [28.521249, 77.228619], [28.522098, 77.228925], [28.523187, 77.229424], [28.523328, 77.229485], [28.523674, 77.229679], [28.523929, 77.229807], [28.524127, 77.229884], [28.524394, 77.229988], [28.525562, 77.230444], [28.526667, 77.230878], [28.527415, 77.231167], [28.527526, 77.231211], [28.527561, 77.231222], [28.5277, 77.231274], [28.528143, 77.231442], [28.528283, 77.231495], [28.528496, 77.231575], [28.528799, 77.231732], [28.529001, 77.231805], [28.529197, 77.231831], [28.529576, 77.231838], [28.531043, 77.231885], [28.531566, 77.231902], [28.532171, 77.231881], [28.532561, 77.231895], [28.532849, 77.231908], [28.532958, 77.231913], [28.533063, 77.231906], [28.533391, 77.231915], [28.533458, 77.231917], [28.533971, 77.231922], [28.534633, 77.231952], [28.535477, 77.231976], [28.537345, 77.232028], [28.539318, 77.232086], [28.53981, 77.2321], [28.540393, 77.232083], [28.540583, 77.232078], [28.541057, 77.232008], [28.541264, 77.231957], [28.541452, 77.231872], [28.541745, 77.23174], [28.541729, 77.231833], [28.541714, 77.231925], [28.541654, 77.232198], [28.541592, 77.232484], [28.541576, 77.232535], [28.541543, 77.232638], [28.541311, 77.23338], [28.541307, 77.233393], [28.541213, 77.233722], [28.540919, 77.234754], [28.540703, 77.235511], [28.540718, 77.235883], [28.54076, 77.236232], [28.540836, 77.23662], [28.541342, 77.237865], [28.541396, 77.237999], [28.541466, 77.238101], [28.541874, 77.239057], [28.541944, 77.239165], [28.542146, 77.239678], [28.542182, 77.239788], [28.542325, 77.240193], [28.542369, 77.240314], [28.542521, 77.240757], [28.542803, 77.241583], [28.54332, 77.243106], [28.543916, 77.244646], [28.544013, 77.2449], [28.544124, 77.245198], [28.544692, 77.24673], [28.544919, 77.247312], [28.546316, 77.250989], [28.546811, 77.252181], [28.546934, 77.252476], [28.547261, 77.253363], [28.547506, 77.253966], [28.547948, 77.255128], [28.548236, 77.255858], [28.54849, 77.256495], [28.54855, 77.256641], [28.548611, 77.256771], [28.548716, 77.257098], [28.548759, 77.257288], [28.548788, 77.25749], [28.548791, 77.25752], [28.54879, 77.257537], [28.548735, 77.25772], [28.548732, 77.257737], [28.54873, 77.257758], [28.548791, 77.259174], [28.548893, 77.260221], [28.548913, 77.260444], [28.549168, 77.261413], [28.549299, 77.261964], [28.549401, 77.26231], [28.549241, 77.262448], [28.54901, 77.262539], [28.548796, 77.262617], [28.54863, 77.262681], [28.548604, 77.262772], [28.548586, 77.262801], [28.548557, 77.262824], [28.54595, 77.263861], [28.545584, 77.263998], [28.544992, 77.264248], [28.54439, 77.264476], [28.544426, 77.264637], [28.544481, 77.264847], [28.544481, 77.264847], [28.544803, 77.266227], [28.544841, 77.266388], [28.544903, 77.266686], [28.544927, 77.266867], [28.544936, 77.266932], [28.544979, 77.267457], [28.544907, 77.267843], [28.544903, 77.267865], [28.544888, 77.267929], [28.544875, 77.267976], [28.544836, 77.268084], [28.54466, 77.268484], [28.54518, 77.268665], [28.54466, 77.268484], [28.544836, 77.268084], [28.544875, 77.267976], [28.544888, 77.267929], [28.544903, 77.267865], [28.544907, 77.267843], [28.544979, 77.267457], [28.544936, 77.266932], [28.544927, 77.266867], [28.544903, 77.266686], [28.544841, 77.266388], [28.544803, 77.266227], [28.544481, 77.264847], [28.544426, 77.264637], [28.54439, 77.264476], [28.544324, 77.264503], [28.544246, 77.264532], [28.544213, 77.264536], [28.544179, 77.264539], [28.544028, 77.264544], [28.543908, 77.264598], [28.54375, 77.264669], [28.54323, 77.264853], [28.542288, 77.265231], [28.541555, 77.265529], [28.541077, 77.265687], [28.540056, 77.266146], [28.539339, 77.26646], [28.539074, 77.266556], [28.538796, 77.266663], [28.538657, 77.266724], [28.538588, 77.26675], [28.538259, 77.26687], [28.537828, 77.267059], [28.537004, 77.267379], [28.536936, 77.267417], [28.536891, 77.267442], [28.536825, 77.267478], [28.536515, 77.267614], [28.536082, 77.267791], [28.535365, 77.268084], [28.534646, 77.268381], [28.534084, 77.268567], [28.534067, 77.268574], [28.533172, 77.268951], [28.533104, 77.268979], [28.532894, 77.269065], [28.532283, 77.269331], [28.532052, 77.269432], [28.531685, 77.269622], [28.531283, 77.26987], [28.529448, 77.271159], [28.529388, 77.271336], [28.529347, 77.271545], [28.529332, 77.271635], [28.529323, 77.271687], [28.529317, 77.271846], [28.529887, 77.272989], [28.530186, 77.273566], [28.530437, 77.274059], [28.530681, 77.27454], [28.531151, 77.275482], [28.531737, 77.276607], [28.531773, 77.276673], [28.532361, 77.277826], [28.532594, 77.27828], [28.532633, 77.278354], [28.532661, 77.278408], [28.532696, 77.278473], [28.533668, 77.280317], [28.534373, 77.281826], [28.534435, 77.282], [28.53452, 77.28224], [28.535116, 77.283867], [28.536117, 77.286292], [28.536422, 77.287008], [28.537008, 77.288385], [28.537379, 77.28929], [28.537603, 77.289828], [28.5377, 77.290062], [28.537745, 77.290171], [28.537854, 77.290433], [28.537973, 77.290719], [28.538311, 77.291496], [28.538515, 77.291964], [28.538701, 77.292391], [28.538754, 77.292511], [28.538983, 77.293039], [28.539091, 77.293309], [28.539408, 77.2941], [28.539881, 77.295055], [28.540041, 77.295559], [28.540408, 77.29648], [28.540546, 77.296798], [28.541491, 77.299042], [28.541621, 77.299345], [28.541742, 77.299657], [28.542078, 77.300486], [28.542204, 77.300864], [28.542916, 77.302722], [28.542963, 77.302842], [28.543212, 77.303472], [28.54339, 77.3038], [28.543521, 77.304016], [28.543659, 77.304192], [28.543784, 77.304348], [28.544162, 77.304816], [28.544301, 77.304988], [28.544323, 77.305015], [28.544763, 77.30556], [28.544784, 77.305587], [28.54574, 77.306701], [28.545796, 77.306785], [28.545831, 77.306873], [28.545846, 77.306957], [28.545847, 77.307041], [28.545828, 77.307124], [28.545795, 77.30718], [28.5445, 77.308768], [28.544409, 77.308895], [28.54426, 77.309162], [28.543831, 77.309878], [28.543759, 77.310031], [28.54371, 77.310192], [28.543789, 77.310272], [28.543876, 77.310359], [28.543994, 77.31045], [28.54488, 77.311093], [28.545168, 77.311287], [28.54529, 77.311415], [28.545315, 77.311442], [28.548858, 77.315627], [28.549008, 77.315808], [28.551223, 77.318443], [28.551425, 77.318697], [28.552307, 77.319691], [28.5531, 77.320636], [28.553228, 77.320789], [28.553779, 77.321446], [28.554265, 77.321984], [28.554412, 77.322162], [28.554436, 77.322191], [28.554761, 77.322605], [28.555496, 77.323621], [28.555668, 77.323859], [28.556133, 77.32468], [28.556535, 77.325541], [28.55658, 77.325632], [28.556806, 77.326237], [28.557514, 77.328017], [28.557681, 77.32844], [28.557807, 77.328754], [28.558133, 77.329581], [28.55992, 77.334012], [28.560071, 77.334209], [28.560878, 77.336085], [28.560964, 77.336286], [28.560938, 77.336386], [28.560926, 77.336414], [28.560909, 77.336438], [28.560886, 77.336455], [28.560861, 77.336464], [28.560834, 77.336466], [28.560807, 77.336459], [28.560784, 77.336444], [28.560764, 77.336422], [28.560751, 77.336396], [28.560684, 77.336237], [28.56057, 77.336092], [28.560438, 77.335669], [28.560356, 77.335577], [28.560296, 77.335503], [28.560237, 77.335428], [28.560198, 77.33539], [28.560171, 77.335378], [28.560152, 77.33538], [28.559828, 77.335544], [28.559208, 77.335856], [28.559176, 77.335778], [28.559112, 77.335615], [28.558877, 77.335017], [28.558329, 77.335278], [28.557467, 77.335688], [28.556877, 77.335943], [28.557095, 77.336539], [28.557154, 77.3367], [28.557863, 77.336415], [28.55834, 77.336195], [28.559176, 77.335778], [28.559796, 77.335467], [28.560128, 77.335289], [28.560149, 77.335276], [28.560173, 77.335239], [28.560192, 77.3352], [28.560221, 77.335107], [28.560166, 77.334958], [28.559812, 77.334075], [28.558022, 77.329638], [28.55754, 77.328439], [28.557309, 77.328108], [28.557144, 77.327751], [28.556979, 77.327633], [28.556724, 77.327507], [28.556604, 77.327489], [28.556439, 77.327465], [28.556101, 77.327462], [28.555833, 77.327455], [28.55566, 77.327494], [28.555522, 77.327549], [28.555492, 77.327587], [28.555448, 77.327619], [28.555374, 77.327634], [28.555327, 77.327623], [28.555281, 77.327593], [28.555261, 77.327571], [28.555233, 77.32752], [28.55522, 77.327436], [28.555233, 77.327375], [28.555209, 77.327379], [28.554872, 77.327422], [28.554771, 77.327463], [28.554551, 77.327553], [28.554177, 77.327739], [28.55369, 77.328438], [28.552744, 77.329648], [28.552034, 77.330476], [28.55118, 77.331416], [28.549997, 77.332677], [28.546647, 77.336303], [28.546008, 77.337068], [28.545414, 77.337822], [28.544687, 77.338819], [28.544059, 77.339797], [28.54257, 77.342194], [28.542029, 77.343067], [28.541743, 77.343527], [28.541336, 77.344184], [28.539053, 77.347868], [28.53826, 77.349147], [28.536264, 77.352369], [28.535073, 77.354063], [28.535011, 77.354157], [28.534932, 77.354278], [28.533348, 77.356701], [28.532035, 77.358482], [28.531039, 77.359806], [28.53039, 77.360749], [28.529972, 77.361432], [28.529668, 77.361923], [28.528597, 77.363699], [28.528266, 77.364319], [28.527578, 77.365719], [28.526999, 77.366826], [28.526679, 77.367379], [28.526237, 77.368004], [28.525892, 77.368424], [28.524339, 77.370409], [28.523882, 77.371219], [28.523633, 77.371794], [28.523536, 77.371952], [28.523468, 77.372095], [28.523379, 77.372268], [28.523266, 77.372505], [28.523056, 77.372942], [28.522776, 77.373522], [28.522745, 77.373854], [28.522705, 77.373952], [28.522464, 77.374443], [28.522352, 77.374366], [28.521784, 77.373984], [28.521706, 77.373939], [28.521639, 77.37392], [28.521597, 77.373919], [28.521518, 77.37392], [28.521516, 77.373907], [28.521492, 77.373677], [28.521476, 77.373543], [28.521218, 77.374093], [28.520933, 77.374659], [28.520781, 77.374908], [28.520505, 77.375317], [28.520124, 77.375817], [28.519478, 77.376534], [28.51842, 77.377679], [28.518158, 77.377961], [28.517944, 77.378171], [28.516243, 77.38004], [28.516257, 77.380106], [28.516251, 77.380173], [28.516225, 77.380233], [28.516183, 77.380279], [28.516129, 77.380306], [28.516062, 77.380309], [28.516, 77.380282], [28.515954, 77.380234], [28.515926, 77.380169], [28.515921, 77.380129], [28.515924, 77.380088], [28.515888, 77.380059], [28.515576, 77.380402], [28.515041, 77.380972], [28.515023, 77.380991], [28.514405, 77.381648], [28.513953, 77.382127], [28.513569, 77.382542], [28.512715, 77.383467], [28.512218, 77.384011], [28.512147, 77.38409], [28.512204, 77.384138], [28.512298, 77.384222], [28.512207, 77.384323], [28.511619, 77.384965], [28.511245, 77.385347], [28.510093, 77.386391], [28.508738, 77.387465], [28.508108, 77.388025], [28.507933, 77.388178], [28.507883, 77.388229], [28.507824, 77.388291], [28.507574, 77.388577], [28.507122, 77.389131], [28.506614, 77.389819], [28.506374, 77.390206], [28.506152, 77.390564], [28.506461, 77.390785], [28.506732, 77.390966], [28.507301, 77.391318], [28.507364, 77.391361], [28.507593, 77.391522], [28.507667, 77.39157], [28.507689, 77.391584], [28.507762, 77.391632], [28.507861, 77.391465], [28.508247, 77.390812], [28.508829, 77.390052], [28.50894, 77.38993], [28.508957, 77.389907], [28.509278, 77.389548], [28.511509, 77.387469], [28.512721, 77.386292], [28.51356, 77.385404], [28.513524, 77.38537], [28.5135, 77.385348], [28.5132, 77.385062], [28.513171, 77.385035], [28.512742, 77.385484], [28.51261, 77.385578], [28.512153, 77.385917], [28.511904, 77.386042], [28.511004, 77.38687], [28.50994, 77.387795], [28.509101, 77.388449], [28.508476, 77.389002], [28.507993, 77.389551], [28.507568, 77.390078], [28.507264, 77.390518], [28.506958, 77.391019], [28.506822, 77.391279], [28.506558, 77.391784], [28.50631, 77.392347], [28.505826, 77.393594], [28.50424, 77.397313], [28.503141, 77.400087], [28.501916, 77.403145], [28.500749, 77.406169], [28.500611, 77.406502], [28.500166, 77.4076], [28.499307, 77.409718], [28.498338, 77.412229], [28.497038, 77.415404], [28.49554, 77.418689], [28.495088, 77.419676], [28.494607, 77.420542], [28.493844, 77.421605], [28.492253, 77.423647], [28.490156, 77.426202], [28.489669, 77.426849], [28.489289, 77.427393], [28.485739, 77.432474], [28.484929, 77.433521], [28.484088, 77.434539], [28.483453, 77.435322], [28.482863, 77.436074], [28.482181, 77.437018], [28.482033, 77.437222], [28.481698, 77.437686], [28.480766, 77.43899], [28.480053, 77.439931], [28.479321, 77.440786], [28.476638, 77.443854], [28.475831, 77.444744], [28.475102, 77.445531], [28.474265, 77.446365], [28.473385, 77.447181], [28.472737, 77.447817], [28.472056, 77.448705], [28.470061, 77.451768], [28.468273, 77.454514], [28.46674, 77.456914], [28.466408, 77.457351], [28.466123, 77.457727], [28.465476, 77.458443], [28.463426, 77.460276], [28.462752, 77.461], [28.461752, 77.462185], [28.46114, 77.462907], [28.459045, 77.465184], [28.457781, 77.466527], [28.456633, 77.467896], [28.455545, 77.469156], [28.454551, 77.470205], [28.452381, 77.47218], [28.451594, 77.472904], [28.450591, 77.47367], [28.449843, 77.474241], [28.447655, 77.475859], [28.446752, 77.476526], [28.445927, 77.477263], [28.445256, 77.478162], [28.445008, 77.478617], [28.444735, 77.479199], [28.444495, 77.479869], [28.444314, 77.480559], [28.44421, 77.481229], [28.444162, 77.48195], [28.444218, 77.482766], [28.444362, 77.483565], [28.444602, 77.484373], [28.444923, 77.485141], [28.445505, 77.486146], [28.445951, 77.486683], [28.446083, 77.486855], [28.446203, 77.486754], [28.446773, 77.487531], [28.447474, 77.488509], [28.44884, 77.490231], [28.450114, 77.49151], [28.450434, 77.491836], [28.450746, 77.492047], [28.451041, 77.492131], [28.451418, 77.492152], [28.451814, 77.492077], [28.452301, 77.491883], [28.452459, 77.491844], [28.452666, 77.491832], [28.452901, 77.491873], [28.453204, 77.492016], [28.453377, 77.492149], [28.453539, 77.49234], [28.453653, 77.492538], [28.453752, 77.492769], [28.453798, 77.492972], [28.45382, 77.493179], [28.45379, 77.493526], [28.453676, 77.493862], [28.453518, 77.494144], [28.45299, 77.494677], [28.45293, 77.494817], [28.45295, 77.494942], [28.453018, 77.495094], [28.453339, 77.494833], [28.456147, 77.492555], [28.457157, 77.491736], [28.459066, 77.490163], [28.461671, 77.487908], [28.461933, 77.487673], [28.462089, 77.487534], [28.462177, 77.487455], [28.462298, 77.487305], [28.462429, 77.487143], [28.462629, 77.486895], [28.464771, 77.48424], [28.46486, 77.48413], [28.464891, 77.484092], [28.465656, 77.483085], [28.465812, 77.48288], [28.466129, 77.482464], [28.467054, 77.481248], [28.468042, 77.479948], [28.468711, 77.479086], [28.470511, 77.476788], [28.471262, 77.475793], [28.471379, 77.475999], [28.471669, 77.476496], [28.47258, 77.478007], [28.472877, 77.478503], [28.473076, 77.478821], [28.473362, 77.479228], [28.473511, 77.479106], [28.473594, 77.479027], [28.473656, 77.478967], [28.473943, 77.478676], [28.474713, 77.477975], [28.475205, 77.477534], [28.475252, 77.477492], [28.475271, 77.477475], [28.475287, 77.47746], [28.475381, 77.477372], [28.47571, 77.477062], [28.475792, 77.477013], [28.475088, 77.475885]]
+};
 
-    const now = ctx.currentTime;
-    if (type === 'start') {
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.exponentialRampToValueAtTime(880, now + 0.3);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-      osc.start(now);
-      osc.stop(now + 0.5);
-    } else if (type === 'board') {
-      osc.frequency.setValueAtTime(523.25, now); // C5
-      osc.frequency.setValueAtTime(659.25, now + 0.15); // E5
-      gain.gain.setValueAtTime(0.18, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-      osc.start(now);
-      osc.stop(now + 0.4);
-    }
-  } catch (e) {
-    // Audio context may require user interaction first
+const DEFAULT_STOPS_01: RouteStop[] = [
+  { id: 'STOP-01', route_id: 'ROUTE-01', sequence_order: 1, name: 'Saket (Starting Point)', description: 'Saket Metro / Press Enclave Rd', latitude: 28.5204, longitude: 77.2014, scheduled_time: '07:30 AM', is_terminal: false, status: 'current' },
+  { id: 'STOP-02', route_id: 'ROUTE-01', sequence_order: 2, name: 'Kalindi Kunj', description: 'Near Kalindi Kunj / Sarita Vihar transit', latitude: 28.5447, longitude: 77.2648, scheduled_time: '07:50 AM', is_terminal: false, status: 'upcoming' },
+  { id: 'STOP-03', route_id: 'ROUTE-01', sequence_order: 3, name: 'Mahamaya Flyover', description: 'Near Mahamaya Flyover / Sector 18 entry', latitude: 28.5583, longitude: 77.3352, scheduled_time: '08:05 AM', is_terminal: false, status: 'upcoming' },
+  { id: 'STOP-04', route_id: 'ROUTE-01', sequence_order: 4, name: 'Noida Expressway', description: 'Noida Expressway (near Sector 128 / 137)', latitude: 28.5132, longitude: 77.3821, scheduled_time: '08:25 AM', is_terminal: false, status: 'upcoming' },
+  { id: 'STOP-05', route_id: 'ROUTE-01', sequence_order: 5, name: 'Pari Chowk Interchange', description: 'Pari Chowk, Greater Noida', latitude: 28.4735, longitude: 77.4789, scheduled_time: '08:45 AM', is_terminal: false, status: 'upcoming' },
+  { id: 'STOP-06', route_id: 'ROUTE-01', sequence_order: 6, name: 'Delhi Technical Campus', description: '28/1, Knowledge Park III, Greater Noida (College Destination)', latitude: 28.47478, longitude: 77.476134, scheduled_time: '09:00 AM', is_terminal: true, status: 'upcoming' }
+];
+
+const DEFAULT_BUS_01: Bus = {
+  id: 'BUS-01',
+  number: '01',
+  plate_number: 'DL 1P B 4022',
+  capacity: 45,
+  assigned_route_id: 'ROUTE-01',
+  assigned_driver_id: 'DRV-01',
+  status: 'MOVING',
+  current_trip_id: 'TRIP-01',
+  last_known_location: {
+    latitude: 28.5204,
+    longitude: 77.2014,
+    speed_kmh: 38,
+    heading: 95,
+    accuracy_meters: 4,
+    timestamp: new Date().toISOString()
   }
-}
+};
 
 export function App() {
-  const [currentRole, setCurrentRole] = useState<UserRole>('student');
-  const [buses, setBuses] = useState<Bus[]>([]);
-  const [activeBus, setActiveBus] = useState<Bus | null>(null);
-  const [route, setRoute] = useState<BusRoute | null>(null);
-  const [stops, setStops] = useState<RouteStop[]>([]);
-  const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
-  const [activity, setActivity] = useState<PassengerActivity | null>(null);
-  const [students, setStudents] = useState<StudentProfile[]>([]);
+  const [currentTab, setCurrentTab] = useState<NavTab>('home');
+  const [routes, setRoutes] = useState<BusRoute[]>([DEFAULT_ROUTE_01]);
+  const [selectedRoute, setSelectedRoute] = useState<BusRoute>(DEFAULT_ROUTE_01);
+  const [stops, setStops] = useState<RouteStop[]>(DEFAULT_STOPS_01);
+  const [bus, setBus] = useState<Bus>(DEFAULT_BUS_01);
+  const [buses, setBuses] = useState<Bus[]>([DEFAULT_BUS_01]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
-    typeof Notification !== 'undefined' ? Notification.permission : 'default'
-  );
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
 
-  // Student Profile state
-  const [student, setStudent] = useState<StudentProfile | null>(() => {
-    const saved = localStorage.getItem('dtc_student_profile');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
+  // Local user profile state
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('bustracker_user_profile');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
     return {
-      id: 'STU-LOCAL',
-      name: 'Aarav Sharma',
-      roll_no: 'DTC/2024/01',
-      phone: '+91 98765 00001',
-      route_id: 'ROUTE-01',
+      id: 'usr_local_01',
+      name: 'Alex Rivera',
+      phone: '+91 98765 43210',
+      avatar_emoji: '😎',
+      role: 'commuter',
+      is_logged_in: true,
       preferred_stop_id: 'STOP-01',
-      is_tracking: true,
-      is_waiting: false,
-      is_boarded: false
+      preferred_stop_name: 'Saket',
+      home_stop: 'Saket Metro',
+      work_campus_stop: 'Delhi Technical Campus',
+      saved_routes: ['01'],
+      notifications_enabled: true,
+      chime_alerts: true,
+      vibration_alerts: true
     };
   });
-
-  // Driver Auth state
-  const [driver, setDriver] = useState<Driver | null>(() => {
-    const saved = localStorage.getItem('dtc_driver_profile');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  // Admin Auth state
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-    return sessionStorage.getItem('dtc_admin_auth') === 'true';
-  });
-
-  // Modal visibility states
-  const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [isInstallOpen, setIsInstallOpen] = useState(false);
-  const [isQROpen, setIsQROpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [authModalRole, setAuthModalRole] = useState<UserRole | null>(null);
-
-  // PWA Install deferred prompt
-  const deferredPromptRef = useRef<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-
-  // Fetch initial data
-  const loadData = async () => {
-    try {
-      const [busesData, routesData, driversData, studentsData, notifsData, netData] = await Promise.all([
-        api.getBuses(),
-        api.getRoutes(),
-        api.getDrivers(),
-        api.getStudents(),
-        api.getNotifications(),
-        api.getNetworkInfo().catch(() => null)
-      ]);
-
-      setBuses(busesData);
-      const defaultBus = busesData[0] || null;
-      setActiveBus(defaultBus);
-
-      const defaultRoute = routesData[0] || null;
-      setRoute(defaultRoute);
-
-      if (defaultRoute) {
-        const stopsData = await api.getStops(defaultRoute.id);
-        setStops(stopsData);
-
-        const activityData = await api.getPassengerActivity(defaultRoute.id);
-        setActivity(activityData);
-      }
-
-      if (defaultBus) {
-        const trip = await api.getActiveTrip(defaultBus.id);
-        setActiveTrip(trip);
-      }
-
-      setDrivers(driversData);
-      setStudents(studentsData);
-      setNotifications(notifsData);
-      if (netData) setNetworkInfo(netData);
-    } catch (err) {
-      console.error('Error loading initial tracker data:', err);
-    }
-  };
 
   useEffect(() => {
-    loadData();
+    const fetchData = async () => {
+      try {
+        const [fetchedRoutes, fetchedDrivers] = await Promise.all([
+          api.getRoutes().catch(() => [DEFAULT_ROUTE_01]),
+          api.getDrivers().catch(() => [])
+        ]);
 
-    // Register student presence on server
-    if (student) {
-      api.registerStudent(student).catch(() => {});
-    }
-
-    // PWA install prompt handler
-    const handleBeforeInstall = (e: any) => {
-      e.preventDefault();
-      deferredPromptRef.current = e;
-      setIsInstallable(true);
+        if (fetchedRoutes && fetchedRoutes.length > 0) {
+          setRoutes(fetchedRoutes);
+          const found = fetchedRoutes.find(r => r.id === 'ROUTE-01' || r.code === '01') || fetchedRoutes[0];
+          setSelectedRoute(found);
+          if (found.stops && found.stops.length > 0) {
+            setStops(found.stops);
+          }
+        }
+        if (fetchedDrivers && fetchedDrivers.length > 0) {
+          setDrivers(fetchedDrivers);
+        }
+      } catch (err) {
+        console.warn('Using fallback route data', err);
+      }
     };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
 
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-    };
+    fetchData();
   }, []);
 
-  // Real-time Socket.IO subscriptions
-  useEffect(() => {
-    socket.on('bus:location_update', (telemetry: any) => {
-      setActiveBus((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          status: telemetry.status,
-          last_known_location: {
-            latitude: telemetry.latitude,
-            longitude: telemetry.longitude,
-            speed_kmh: telemetry.speed_kmh,
-            heading: telemetry.heading,
-            accuracy_meters: telemetry.accuracy_meters,
-            timestamp: telemetry.last_update
-          }
-        };
-      });
-
-      setActiveTrip((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          latitude: telemetry.latitude,
-          longitude: telemetry.longitude,
-          speed_kmh: telemetry.speed_kmh,
-          heading: telemetry.heading,
-          current_stop_id: telemetry.current_stop_id,
-          next_stop_id: telemetry.next_stop_id,
-          eta_to_next_stop_mins: telemetry.eta_to_next_stop_mins,
-          last_update: telemetry.last_update
-        };
-      });
-    });
-
-    socket.on('passenger:activity_update', (act: PassengerActivity) => {
-      setActivity(act);
-    });
-
-    socket.on('trip:started', ({ trip, bus }: any) => {
-      setActiveTrip(trip);
-      setActiveBus(bus);
-      playChime('start');
-    });
-
-    socket.on('trip:ended', ({ tripId, bus }: any) => {
-      setActiveTrip(null);
-      setActiveBus(bus);
-    });
-
-    socket.on('route:updated', ({ route: r, stops: s }: any) => {
-      if (r) setRoute(r);
-      if (s) setStops(s);
-    });
-
-    socket.on('notification:new', (notif: AppNotification) => {
-      setNotifications((prev) => [notif, ...prev.slice(0, 29)]);
-      if (Notification.permission === 'granted') {
-        new Notification(notif.title, {
-          body: notif.message,
-          icon: '/bus-icon.svg'
-        });
-      }
-    });
-
-    const heartbeatTimer = setInterval(() => {
-      if (student) {
-        socket.emit('student:heartbeat', {
-          studentId: student.id,
-          routeId: route?.id || 'ROUTE-01'
-        });
-      }
-    }, 15000);
-
-    return () => {
-      socket.off('bus:location_update');
-      socket.off('passenger:activity_update');
-      socket.off('trip:started');
-      socket.off('trip:ended');
-      socket.off('route:updated');
-      socket.off('notification:new');
-      clearInterval(heartbeatTimer);
-    };
-  }, [student, route?.id]);
-
-  const handleChangeRole = (role: UserRole) => {
-    if (role === 'student') {
-      setCurrentRole('student');
-    } else if (role === 'driver') {
-      if (driver) {
-        setCurrentRole('driver');
-      } else {
-        setAuthModalRole('driver');
-      }
-    } else if (role === 'admin') {
-      if (isAdminAuthenticated) {
-        setCurrentRole('admin');
-      } else {
-        setAuthModalRole('admin');
-      }
-    }
-  };
-
-  const handleAuthenticate = async (pin: string): Promise<boolean> => {
-    if (authModalRole === 'driver') {
-      const res = await api.driverLogin(pin);
-      if (res.driver) {
-        setDriver(res.driver);
-        localStorage.setItem('dtc_driver_profile', JSON.stringify(res.driver));
-        setCurrentRole('driver');
-        return true;
-      }
-    } else if (authModalRole === 'admin') {
-      const res = await api.adminLogin(pin);
-      if (res.authenticated) {
-        setIsAdminAuthenticated(true);
-        sessionStorage.setItem('dtc_admin_auth', 'true');
-        setCurrentRole('admin');
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const handleUpdateStudentActivity = async (updates: {
-    is_waiting?: boolean;
-    is_boarded?: boolean;
-    preferred_stop_id?: string;
-  }) => {
-    if (!student) return;
-
-    const newStudent = { ...student, ...updates };
-    setStudent(newStudent);
-    localStorage.setItem('dtc_student_profile', JSON.stringify(newStudent));
-
-    if (updates.is_boarded) {
-      playChime('board');
-    }
-
-    try {
-      const res = await api.updateStudentActivity({
-        studentId: student.id,
-        ...updates
-      });
-      setActivity(res.activity);
-    } catch (err) {
-      console.error('Error updating student activity:', err);
-    }
-  };
-
-  const handleSaveStudentProfile = async (profileUpdates: Partial<StudentProfile>) => {
-    if (!student) return;
-    const updated = { ...student, ...profileUpdates };
-    setStudent(updated);
-    localStorage.setItem('dtc_student_profile', JSON.stringify(updated));
-    await api.registerStudent(updated);
-    const act = await api.getPassengerActivity(updated.route_id);
-    setActivity(act);
-  };
-
-  const handleRequestNotificationPermission = async () => {
-    if (typeof Notification !== 'undefined') {
-      const perm = await Notification.requestPermission();
-      setNotificationPermission(perm);
-      if (perm === 'granted') {
-        new Notification('DTC Bus Tracker', {
-          body: 'Notifications enabled! You will be alerted when your bus approaches.',
-          icon: '/bus-icon.svg'
-        });
-      }
-    }
-  };
-
-  const handleTriggerPWAInstall = async () => {
-    if (deferredPromptRef.current) {
-      deferredPromptRef.current.prompt();
-      const { outcome } = await deferredPromptRef.current.userChoice;
-      if (outcome === 'accepted') {
-        setIsInstallable(false);
-      }
-      deferredPromptRef.current = null;
-      setIsInstallOpen(false);
-    }
-  };
-
   return (
-    <div className="h-[100dvh] w-full max-w-md mx-auto bg-slate-50 text-slate-900 flex flex-col font-sans overflow-hidden shadow-2xl relative">
-      {/* Active Role Views */}
+    <div className="h-[100dvh] w-full max-w-md mx-auto bg-slate-100 flex flex-col font-sans overflow-hidden shadow-2xl relative select-none">
+      {/* Dynamic View Display Based on Bottom Navigation Tab */}
       <main className="flex-1 h-full w-full overflow-hidden relative">
-        {currentRole === 'student' && (
-          <StudentDashboard
-            bus={activeBus}
-            route={route}
+        {/* Tab 1: Home View (Image 1: Route 01, Destination Delhi Technical Campus, Countdown, Live Navigation) */}
+        {currentTab === 'home' && (
+          <HomeView
+            route={selectedRoute}
+            bus={bus}
             stops={stops}
-            activeTrip={activeTrip}
-            activity={activity}
-            student={student}
-            onUpdateActivity={handleUpdateStudentActivity}
-            onOpenNotifications={() => setIsNotifOpen(true)}
-            onOpenProfile={() => setIsProfileOpen(true)}
-            unreadCount={notifications.length}
+            onOpenAlerts={() => setIsAlertsOpen(true)}
+            userEmoji={userProfile.avatar_emoji}
+            userStopName={userProfile.preferred_stop_name}
           />
         )}
 
-        {currentRole === 'driver' && (
-          <DriverDashboard
-            bus={activeBus}
-            route={route}
+        {/* Tab 2: Map View (Viabus style transit map, radar hubs, live route tracking to Delhi Technical Campus) */}
+        {currentTab === 'map' && (
+          <TransitExploreView
+            routes={routes}
             stops={stops}
-            activeTrip={activeTrip}
-            driver={driver}
-            onTripStarted={(t) => {
-              setActiveTrip(t);
-              if (activeBus) {
-                setActiveBus({ ...activeBus, status: 'MOVING', current_trip_id: t.id });
+            buses={buses}
+            selectedRoute={selectedRoute}
+            onSelectRoute={(newRoute) => {
+              setSelectedRoute(newRoute);
+              if (newRoute.stops && newRoute.stops.length > 0) {
+                setStops(newRoute.stops);
               }
             }}
-            onTripEnded={() => {
-              setActiveTrip(null);
-              if (activeBus) {
-                setActiveBus({ ...activeBus, status: 'IDLE', current_trip_id: null });
-              }
-            }}
+            onOpenAlerts={() => setIsAlertsOpen(true)}
           />
         )}
 
-        {currentRole === 'admin' && (
-          <AdminDashboard
-            bus={activeBus}
-            route={route}
-            stops={stops}
-            activity={activity}
-            students={students}
-            drivers={drivers}
-            networkInfo={networkInfo}
-            onRefreshData={loadData}
-          />
+        {/* Tab 3: Driver Details & Permanent Schedule Times (Stored on Vercel Backend) */}
+        {currentTab === 'driver' && (
+          <div className="h-full w-full overflow-y-auto">
+            <DriverDetailsView />
+          </div>
+        )}
+
+        {/* Tab 4: Profile View (Passenger profile stored locally in browser LocalStorage) */}
+        {currentTab === 'profile' && (
+          <div className="h-full w-full overflow-y-auto">
+            <ProfileView
+              onProfileUpdate={(updated) => setUserProfile(updated)}
+            />
+          </div>
         )}
       </main>
 
-      {/* Persistent Bottom Mobile Navigation Bar */}
-      <Navbar
-        currentRole={currentRole}
-        onChangeRole={handleChangeRole}
-        onOpenQR={() => setIsQROpen(true)}
-        onOpenInstall={() => setIsInstallOpen(true)}
-        isPWAInstallable={isInstallable}
-      />
-
-      {/* Modals */}
-      <NotificationCenter
-        isOpen={isNotifOpen}
-        onClose={() => setIsNotifOpen(false)}
-        notifications={notifications}
-        onRequestPermission={handleRequestNotificationPermission}
-        permissionState={notificationPermission}
-      />
-
-      <InstallPWAModal
-        isOpen={isInstallOpen}
-        onClose={() => setIsInstallOpen(false)}
-        onTriggerInstall={handleTriggerPWAInstall}
-        deferredPromptAvailable={isInstallable}
-      />
-
-      <NetworkQRCodeModal
-        isOpen={isQROpen}
-        onClose={() => setIsQROpen(false)}
-        networkInfo={networkInfo}
-      />
-
-      <StudentProfileModal
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        student={student}
+      {/* Ride Alerts Modal */}
+      <RideAlertsModal
+        isOpen={isAlertsOpen}
+        onClose={() => setIsAlertsOpen(false)}
         stops={stops}
-        onSaveProfile={handleSaveStudentProfile}
+        routeCode={selectedRoute.code}
+        routeName={selectedRoute.name}
       />
 
-      {authModalRole && (
-        <AuthModal
-          isOpen={true}
-          onClose={() => setAuthModalRole(null)}
-          targetRole={authModalRole}
-          onAuthenticate={handleAuthenticate}
-        />
-      )}
+      {/* Modern 4-Tab Bottom Navigation Bar */}
+      <BottomNavBar
+        currentTab={currentTab}
+        onTabChange={(tab) => setCurrentTab(tab)}
+        driverCount={drivers.length > 0 ? drivers.length : 2}
+        isLoggedIn={userProfile.is_logged_in}
+      />
     </div>
   );
 }

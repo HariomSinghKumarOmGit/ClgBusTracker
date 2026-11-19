@@ -3,6 +3,24 @@
 
 const defaultBuses = [
   {
+    id: "BUS-01",
+    number: "Bus 01",
+    plate_number: "DL 1P B 4022",
+    capacity: 45,
+    assigned_route_id: "ROUTE-01",
+    assigned_driver_id: "DRV-01",
+    status: "IDLE",
+    current_trip_id: null,
+    last_known_location: {
+      latitude: 28.5204,
+      longitude: 77.2014,
+      speed_kmh: 0,
+      heading: 85,
+      accuracy_meters: 5,
+      timestamp: new Date().toISOString()
+    }
+  },
+  {
     id: "BUS-38",
     number: "Bus 38",
     plate_number: "DL 1P B 3838",
@@ -34,24 +52,6 @@ const defaultBuses = [
       longitude: 100.5380,
       speed_kmh: 28,
       heading: 180,
-      accuracy_meters: 5,
-      timestamp: new Date().toISOString()
-    }
-  },
-  {
-    id: "BUS-01",
-    number: "Bus 01",
-    plate_number: "DL 1P B 4022",
-    capacity: 45,
-    assigned_route_id: "ROUTE-01",
-    assigned_driver_id: "DRV-01",
-    status: "IDLE",
-    current_trip_id: null,
-    last_known_location: {
-      latitude: 28.5204,
-      longitude: 77.2014,
-      speed_kmh: 0,
-      heading: 85,
       accuracy_meters: 5,
       timestamp: new Date().toISOString()
     }

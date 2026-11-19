@@ -6,16 +6,16 @@
 
 let inMemorySchedules = [
   {
-    id: "SCH-3801",
-    route_name: "Route 38: Southbound to Glade",
-    route_code: "38",
-    bus_number: "Bus 38",
+    id: "SCH-0101",
+    route_name: "Route 01: Saket → Delhi Technical Campus",
+    route_code: "01",
+    bus_number: "Bus 01",
     driver_name: "Rajesh Kumar",
-    departure_time: "2026-11-19T08:00:00.000Z",
-    arrival_time: "2026-11-19T08:42:00.000Z",
+    departure_time: "2026-11-19T07:30:00.000Z",
+    arrival_time: "2026-11-19T08:31:00.000Z",
     status: "COMPLETED",
     passengers_served: 42,
-    terminal_notes: "Arrived on schedule at Glade Central Terminal"
+    terminal_notes: "Arrived on schedule at Delhi Technical Campus"
   },
   {
     id: "SCH-2101",
@@ -42,16 +42,16 @@ let inMemorySchedules = [
     terminal_notes: "Morning express run"
   },
   {
-    id: "SCH-3802",
-    route_name: "Route 38: Southbound to Glade",
-    route_code: "38",
-    bus_number: "Bus 38",
+    id: "SCH-0102",
+    route_name: "Route 01: Saket → Delhi Technical Campus",
+    route_code: "01",
+    bus_number: "Bus 01",
     driver_name: "Rajesh Kumar",
     departure_time: "2026-11-19T09:30:00.000Z",
-    arrival_time: "2026-11-19T10:12:00.000Z",
+    arrival_time: "2026-11-19T10:31:00.000Z",
     status: "IN_TRANSIT",
     passengers_served: 36,
-    terminal_notes: "Current live morning run"
+    terminal_notes: "Current live morning run to Delhi Technical Campus"
   }
 ];
 
@@ -89,8 +89,8 @@ export default function handler(req, res) {
     // Explicitly reject or strip any coordinates, GPS telemetry, or breadcrumb logs!
     const newRecord = {
       id: `SCH-${Date.now().toString(36).toUpperCase()}`,
-      route_name: route_name || 'Route 38: Southbound to Glade',
-      route_code: route_code || '38',
+      route_name: route_name || 'Route 01: Saket → Delhi Technical Campus',
+      route_code: route_code || '01',
       bus_number: bus_number || 'Bus 38',
       driver_name: driver_name || 'Assigned Driver',
       departure_time, // Starting time

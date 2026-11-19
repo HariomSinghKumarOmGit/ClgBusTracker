@@ -8,6 +8,22 @@
       "destination": "/api/stops?routeId=:id"
     },
     {
+      "source": "/api/routes/:id",
+      "destination": "/api/routes?id=:id"
+    },
+    {
+      "source": "/api/buses/:id",
+      "destination": "/api/buses?id=:id"
+    },
+    {
+      "source": "/api/stops/:id",
+      "destination": "/api/stops?id=:id"
+    },
+    {
+      "source": "/api/drivers/:id",
+      "destination": "/api/drivers?id=:id"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
