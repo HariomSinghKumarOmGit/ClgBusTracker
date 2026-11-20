@@ -43,6 +43,147 @@ function getLocalNetworkIP() {
 
 const localIP = getLocalNetworkIP();
 
+// --- MULTI-DEVICE PASSENGER REPORTER TRACKING & CONSENSUS ENGINE ---
+// Maps busId -> Map<deviceId, reporterData>
+const busReporters = new Map();
+
+function haversineDistMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function processReporterLocation(busId, data) {
+  const {
+    deviceId = 'DEV-UNKNOWN',
+    emoji = '😎',
+    isOnTrack = true,
+    latitude,
+    longitude,
+    speed_kmh = 0,
+    heading = 0,
+    accuracy_meters = 5,
+    delay_mins = 0
+  } = data;
+
+  if (latitude === undefined || longitude === undefined) return null;
+
+  if (!busReporters.has(busId)) {
+    busReporters.set(busId, new Map());
+  }
+  const reporters = busReporters.get(busId);
+  const now = Date.now();
+
+  // Save current reporter state
+  reporters.set(deviceId, {
+    deviceId,
+    emoji: emoji || '😎',
+    isOnTrack: Boolean(isOnTrack),
+    latitude: Number(latitude),
+    longitude: Number(longitude),
+    speed_kmh: Number(speed_kmh || 0),
+    heading: Number(heading || 0),
+    accuracy_meters: Number(accuracy_meters || 5),
+    delay_mins: Number(delay_mins || 0),
+    updatedAt: now
+  });
+
+  // Prune reporters inactive for > 25 seconds
+  for (const [id, rep] of reporters.entries()) {
+    if (now - rep.updatedAt > 25000) {
+      reporters.delete(id);
+    }
+  }
+
+  const allActive = Array.from(reporters.values());
+  const onTrackReporters = allActive.filter(r => r.isOnTrack);
+  const offTrackReporters = allActive.filter(r => !r.isOnTrack).map(r => ({
+    device_id: r.deviceId,
+    emoji: r.emoji,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    accuracy_meters: r.accuracy_meters
+  }));
+
+  let targetLat = Number(latitude);
+  let targetLng = Number(longitude);
+  let targetSpeed = Number(speed_kmh || 0);
+  let targetHeading = Number(heading || 0);
+  let targetAccuracy = Number(accuracy_meters || 5);
+  let passengerEmojis = [emoji || '😎'];
+  let passengerCount = 1;
+
+  if (onTrackReporters.length > 0) {
+    // Cluster on-track reporters to find the cluster where MAX locations are shown
+    let bestCluster = [onTrackReporters[0]];
+
+    for (let i = 0; i < onTrackReporters.length; i++) {
+      const orig = onTrackReporters[i];
+      const cluster = [orig];
+      for (let j = 0; j < onTrackReporters.length; j++) {
+        if (i !== j) {
+          const dist = haversineDistMeters(orig.latitude, orig.longitude, onTrackReporters[j].latitude, onTrackReporters[j].longitude);
+          if (dist <= 350) {
+            cluster.push(onTrackReporters[j]);
+          }
+        }
+      }
+      if (cluster.length > bestCluster.length) {
+        bestCluster = cluster;
+      }
+    }
+
+    targetLat = bestCluster.reduce((s, r) => s + r.latitude, 0) / bestCluster.length;
+    targetLng = bestCluster.reduce((s, r) => s + r.longitude, 0) / bestCluster.length;
+    targetSpeed = Math.round(bestCluster.reduce((s, r) => s + r.speed_kmh, 0) / bestCluster.length);
+    targetHeading = bestCluster[0].heading;
+    targetAccuracy = Math.round(bestCluster.reduce((s, r) => s + r.accuracy_meters, 0) / bestCluster.length);
+    passengerCount = bestCluster.length;
+    passengerEmojis = bestCluster.map(r => r.emoji || '😎');
+  } else {
+    // All current reporters are off track! Do NOT move bus to off-track position.
+    const existingBus = db.getBus(busId);
+    if (existingBus && existingBus.last_known_location) {
+      targetLat = existingBus.last_known_location.latitude;
+      targetLng = existingBus.last_known_location.longitude;
+      targetSpeed = 0;
+      targetHeading = existingBus.last_known_location.heading;
+      targetAccuracy = existingBus.last_known_location.accuracy_meters;
+      passengerCount = 0;
+      passengerEmojis = [];
+    }
+  }
+
+  // Update bus location in db
+  const result = db.updateBusDirectLocation(busId, {
+    latitude: targetLat,
+    longitude: targetLng,
+    speed_kmh: targetSpeed,
+    heading: targetHeading,
+    accuracy_meters: targetAccuracy,
+    delay_mins
+  });
+
+  return {
+    result,
+    targetLat,
+    targetLng,
+    targetSpeed,
+    targetHeading,
+    targetAccuracy,
+    passengerCount,
+    passengerEmojis,
+    offTrackReporters
+  };
+}
+
 // --- REST API ENDPOINTS ---
 
 // Health & System Info
@@ -83,41 +224,38 @@ app.get('/api/buses/:id', (req, res) => {
 
 // Update bus location (from commuter inside bus or driver)
 app.post('/api/buses/:id/location', (req, res) => {
-  const { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins } = req.body;
+  const { latitude, longitude } = req.body;
   if (latitude === undefined || longitude === undefined) {
     return res.status(400).json({ error: 'latitude and longitude are required' });
   }
 
-  const result = db.updateBusDirectLocation(req.params.id, {
-    latitude,
-    longitude,
-    speed_kmh,
-    heading,
-    accuracy_meters,
-    delay_mins
-  });
-
-  if (!result || !result.bus) {
+  const processed = processReporterLocation(req.params.id, req.body);
+  if (!processed || !processed.result || !processed.result.bus) {
     return res.status(404).json({ error: 'Bus not found' });
   }
 
-  // Real-time broadcast to all connected passengers and maps
+  const { result, targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy, passengerCount, passengerEmojis, offTrackReporters } = processed;
+
+  // Real-time broadcast to all connected passengers and maps with multi-device consensus & emoji dots
   io.emit('bus:location_update', {
     bus_id: result.bus.id,
     trip_id: result.trip?.id || null,
-    latitude: result.bus.last_known_location.latitude,
-    longitude: result.bus.last_known_location.longitude,
-    speed_kmh: result.bus.last_known_location.speed_kmh,
-    heading: result.bus.last_known_location.heading,
-    accuracy_meters: result.bus.last_known_location.accuracy_meters,
+    latitude: targetLat,
+    longitude: targetLng,
+    speed_kmh: targetSpeed,
+    heading: targetHeading,
+    accuracy_meters: targetAccuracy,
     status: result.bus.status,
     current_stop_id: result.trip?.current_stop_id || null,
     next_stop_id: result.trip?.next_stop_id || null,
     eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
+    passenger_count: passengerCount,
+    passenger_emojis: passengerEmojis,
+    off_track_passengers: offTrackReporters,
     last_update: result.bus.last_known_location.timestamp
   });
 
-  res.json({ success: true, bus: result.bus, trip: result.trip });
+  res.json({ success: true, bus: result.bus, trip: result.trip, passengerCount, passengerEmojis });
 });
 
 // Start/Stop tracking notifications
@@ -497,52 +635,48 @@ io.on('connection', socket => {
 
   // Direct bus location update event (used by Inside Bus passenger or driver)
   socket.on('bus:send_location', data => {
-    const { busId = 'BUS-01', tripId, latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins } = data;
-    if (latitude === undefined || longitude === undefined) return;
+    const busId = data.busId || 'BUS-01';
+    if (data.latitude === undefined || data.longitude === undefined) return;
 
-    let result;
-    if (tripId) {
-      const updatedTrip = db.updateTripLocation(tripId, {
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        speed_kmh: Number(speed_kmh || 0),
-        heading: Number(heading || 0),
-        accuracy_meters: Number(accuracy_meters || 5),
-        delay_mins: Number(delay_mins || 0)
-      });
-      const bus = updatedTrip ? db.getBus(updatedTrip.bus_id) : null;
-      result = { bus, trip: updatedTrip };
-    } else {
-      result = db.updateBusDirectLocation(busId, {
-        latitude,
-        longitude,
-        speed_kmh,
-        heading,
-        accuracy_meters,
-        delay_mins
-      });
+    // Use socket id as fallback deviceId
+    if (!data.deviceId) {
+      data.deviceId = socket.id;
     }
 
-    if (result && result.bus) {
-      io.emit('bus:location_update', {
-        bus_id: result.bus.id,
-        trip_id: result.trip?.id || null,
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        speed_kmh: Number(speed_kmh || 0),
-        heading: Number(heading || 0),
-        accuracy_meters: Number(accuracy_meters || 5),
-        status: result.bus.status || 'MOVING',
-        current_stop_id: result.trip?.current_stop_id || null,
-        next_stop_id: result.trip?.next_stop_id || null,
-        eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
-        last_update: new Date().toISOString()
-      });
-    }
+    const processed = processReporterLocation(busId, data);
+    if (!processed || !processed.result || !processed.result.bus) return;
+
+    const { result, targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy, passengerCount, passengerEmojis, offTrackReporters } = processed;
+
+    io.emit('bus:location_update', {
+      bus_id: result.bus.id,
+      trip_id: result.trip?.id || null,
+      latitude: targetLat,
+      longitude: targetLng,
+      speed_kmh: targetSpeed,
+      heading: targetHeading,
+      accuracy_meters: targetAccuracy,
+      status: result.bus.status || 'MOVING',
+      current_stop_id: result.trip?.current_stop_id || null,
+      next_stop_id: result.trip?.next_stop_id || null,
+      eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
+      passenger_count: passengerCount,
+      passenger_emojis: passengerEmojis,
+      off_track_passengers: offTrackReporters,
+      last_update: new Date().toISOString()
+    });
   });
 
   // Stop tracking event
-  socket.on('bus:stop_tracking', ({ busId = 'BUS-01' }) => {
+  socket.on('bus:stop_tracking', ({ busId = 'BUS-01', deviceId }) => {
+    if (busReporters.has(busId)) {
+      const reps = busReporters.get(busId);
+      if (deviceId) {
+        reps.delete(deviceId);
+      } else {
+        reps.delete(socket.id);
+      }
+    }
     const bus = db.getBus(busId);
     if (bus) {
       bus.status = 'IDLE';

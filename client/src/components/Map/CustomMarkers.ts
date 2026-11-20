@@ -12,18 +12,23 @@ export function createImage1BusMarkerIcon({
   heading = 0,
   countdownText = '32s',
   isOccupied = [true, true, true, false, false, false],
-  status = 'MOVING'
+  status = 'MOVING',
+  passengerCount = 1,
+  passengerEmojis = ['😎']
 }: {
   heading?: number;
   countdownText?: string;
   isOccupied?: boolean[];
   status?: string;
+  passengerCount?: number;
+  passengerEmojis?: string[];
 }) {
   const isMoving = status === 'MOVING';
 
-  const dotsHtml = (isOccupied || [true, true, true, false, false, false])
-    .map(filled => `<span style="width: 4px; height: 4px; border-radius: 9999px; background-color: ${filled ? '#1d4ed8' : '#cbd5e1'};"></span>`)
-    .join('');
+  // Deduplicate and format passenger emojis
+  const displayEmojis = (passengerEmojis && passengerEmojis.length > 0)
+    ? Array.from(new Set(passengerEmojis)).slice(0, 3).join('')
+    : '😎';
 
   const html = `
     <div class="relative flex flex-col items-center justify-center select-none" style="width: 72px; height: 84px;">
@@ -71,14 +76,14 @@ export function createImage1BusMarkerIcon({
         </div>
       </div>
 
+      {/* Small dot numbered with chosen emoji below the bus */}
       <div 
-        class="mt-1 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-full shadow-md flex items-center justify-center gap-1"
-        style="border: 1.5px solid #e2e8f0;"
-        title="Bus Occupancy Level"
+        class="mt-1 bg-white/95 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-md flex items-center justify-center gap-1 border border-blue-200 select-none animate-fade-in"
+        title="${passengerCount} Passenger(s) On Board"
       >
-        <div class="grid grid-cols-3 gap-0.5">
-          ${dotsHtml}
-        </div>
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-[10px] font-black text-blue-900 leading-none">${passengerCount}</span>
+        <span class="text-xs leading-none">${displayEmojis}</span>
       </div>
     </div>
   `;
@@ -89,6 +94,43 @@ export function createImage1BusMarkerIcon({
     iconSize: [72, 84],
     iconAnchor: [36, 42],
     popupAnchor: [0, -42]
+  });
+}
+
+/**
+ * Off-Track Passenger Marker:
+ * Displayed when user is broadcasting from inside bus but GPS is detected OFF THE ROUTE.
+ * Shows the individual emoji with an off-track pill instead of moving the bus.
+ */
+export function createOffTrackEmojiMarkerIcon(emoji = '😎') {
+  const html = `
+    <div class="relative flex flex-col items-center justify-center select-none" style="width: 48px; height: 56px;">
+      <div class="absolute w-10 h-10 rounded-full bg-amber-500/25 animate-ping"></div>
+      <div 
+        class="relative flex items-center justify-center rounded-full bg-white text-base shadow-xl"
+        style="
+          width: 32px; 
+          height: 32px; 
+          border: 2.5px solid #f59e0b;
+          box-shadow: 0 4px 14px rgba(245, 158, 11, 0.45);
+        "
+      >
+        <span>${emoji}</span>
+      </div>
+      <div 
+        class="mt-0.5 bg-amber-600 text-white text-[8px] font-black px-1.5 py-0.2 rounded-full shadow-sm border border-white whitespace-nowrap"
+      >
+        Off Route
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'off-track-emoji-pin',
+    iconSize: [48, 56],
+    iconAnchor: [24, 28],
+    popupAnchor: [0, -28]
   });
 }
 
@@ -335,4 +377,87 @@ export function createCampusU5MarkerIcon(label: string = 'Campus Destination') {
     popupAnchor: [0, -36]
   });
 }
+
+/**
+ * Stop Marker on Transit Explore Map:
+ * Highlights passed stops, upcoming stops, and pulses prominently where the bus is currently stopped
+ */
+export function createTransitRouteStopMarkerIcon({
+  sequenceOrder,
+  name,
+  isCurrent = false,
+  isPassed = false,
+  isTerminal = false
+}: {
+  sequenceOrder: number;
+  name: string;
+  isCurrent?: boolean;
+  isPassed?: boolean;
+  isTerminal?: boolean;
+}) {
+  if (isCurrent) {
+    const html = `
+      <div class="relative flex flex-col items-center justify-center cursor-pointer select-none" style="width: 120px; height: 68px;">
+        <div class="absolute w-12 h-12 rounded-full bg-blue-500/35 animate-ping"></div>
+        <div class="relative flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white shadow-xl border-2 border-white">
+          <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M8 6v6" />
+            <path d="M16 6v6" />
+            <path d="M4 6h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-1H7v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
+            <circle cx="7" cy="15" r="1.5" />
+            <circle cx="17" cy="15" r="1.5" />
+          </svg>
+        </div>
+        <div class="mt-1 whitespace-nowrap bg-blue-700 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-lg border border-white flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Bus Stopped Here</span>
+        </div>
+      </div>
+    `;
+    return L.divIcon({
+      html,
+      className: 'transit-current-stop-marker',
+      iconSize: [120, 68],
+      iconAnchor: [60, 34],
+      popupAnchor: [0, -34]
+    });
+  }
+
+  const bgColor = isPassed ? '#2563eb' : (isTerminal ? '#6d28d9' : '#ffffff');
+  const textColor = isPassed || isTerminal ? '#ffffff' : '#334155';
+  const borderColor = isPassed ? '#1d4ed8' : (isTerminal ? '#5b21b6' : '#94a3b8');
+
+  const shortName = name.replace(/\s*\([^)]*\)/g, '').trim();
+
+  const html = `
+    <div class="relative flex flex-col items-center justify-center cursor-pointer group select-none" style="width: 70px; height: 46px;">
+      <div 
+        class="relative flex items-center justify-center rounded-full shadow-md transition-transform group-hover:scale-125"
+        style="
+          width: 22px; 
+          height: 22px; 
+          background-color: ${bgColor};
+          color: ${textColor};
+          border: 2px solid ${borderColor};
+          font-size: 10px;
+          font-weight: 800;
+        "
+      >
+        ${isPassed ? '✓' : (isTerminal ? '★' : sequenceOrder)}
+      </div>
+      <div class="mt-0.5 whitespace-nowrap bg-white/95 backdrop-blur-xs text-slate-800 text-[9px] font-bold px-1.5 py-0.2 rounded shadow-xs border border-slate-200">
+        ${shortName}
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'transit-stop-marker',
+    iconSize: [70, 46],
+    iconAnchor: [35, 11],
+    popupAnchor: [0, -11]
+  });
+}
+
 

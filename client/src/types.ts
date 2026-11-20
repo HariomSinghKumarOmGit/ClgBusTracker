@@ -18,6 +18,14 @@ export interface BusLocationTelemetry extends LocationCoordinates {
   timestamp: string;
 }
 
+export interface OffTrackPassenger {
+  device_id: string;
+  emoji: string;
+  latitude: number;
+  longitude: number;
+  accuracy_meters?: number;
+}
+
 export interface Bus {
   id: string;
   number: string;
@@ -28,6 +36,9 @@ export interface Bus {
   status: BusStatus;
   current_trip_id: string | null;
   last_known_location: BusLocationTelemetry;
+  passenger_count?: number;
+  passenger_emojis?: string[];
+  off_track_passengers?: OffTrackPassenger[];
 }
 
 export interface RouteStop {

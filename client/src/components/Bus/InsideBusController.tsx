@@ -24,6 +24,8 @@ interface InsideBusControllerProps {
   onRecenter?: () => void;
 }
 
+const EMOJI_OPTIONS = ['😎', '🧑‍🎓', '🎒', '🎧', '⚡', '🦊', '🚀', '🧢', '⭐', '🔥'];
+
 export const InsideBusController: React.FC<InsideBusControllerProps> = ({
   busNumber = 'Bus 01',
   routeName = 'Saket → Delhi Technical Campus',
@@ -33,8 +35,16 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
   onRecenter
 }) => {
   const [trackerState, setTrackerState] = useState<TrackerState>(backgroundTracker.getState());
+  const [userEmoji, setUserEmoji] = useState<string>(() => backgroundTracker.getState().userEmoji || '😎');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  const handleSelectEmoji = (em: string) => {
+    setUserEmoji(em);
+    backgroundTracker.setUserEmoji(em);
+    setShowEmojiPicker(false);
+  };
 
   // Sync with backgroundTracker service
   useEffect(() => {
@@ -93,20 +103,53 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
   if (compact) {
     if (trackerState.isTracking) {
       return (
-        <div className={`h-[88px] bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-950 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-emerald-500/40 text-white flex flex-col justify-between select-none ${className}`}>
+        <div className={`relative h-[88px] bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-950 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-emerald-500/40 text-white flex flex-col justify-between select-none ${className}`}>
+          {/* Interactive Emoji Selector Popup */}
+          {showEmojiPicker && (
+            <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md rounded-2xl p-2 flex flex-col justify-between border border-blue-400/50 shadow-2xl text-white animate-fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-blue-300 uppercase tracking-wider">Choose Avatar Emoji</span>
+                <button onClick={() => setShowEmojiPicker(false)} className="text-xs text-slate-400 hover:text-white px-1 font-bold">✕</button>
+              </div>
+              <div className="grid grid-cols-5 gap-1 my-0.5">
+                {EMOJI_OPTIONS.map(em => (
+                  <button
+                    key={em}
+                    onClick={() => handleSelectEmoji(em)}
+                    className={`w-7 h-7 text-sm rounded-lg flex items-center justify-center transition-all ${userEmoji === em ? 'bg-blue-600 ring-2 ring-white scale-110' : 'bg-white/10 hover:bg-white/25'}`}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[7.5px] text-slate-400 text-center leading-none">Shown under bus or at your spot if off-track</p>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-[10px] font-black tracking-wide text-emerald-300 uppercase">
-                ON BUS
+              <span className={`text-[10px] font-black tracking-wide uppercase ${trackerState.isOnTrack ? 'text-emerald-300' : 'text-amber-400'}`}>
+                {trackerState.isOnTrack ? 'ON BUS' : 'OFF ROUTE'}
               </span>
             </div>
-            <span className="text-[9px] font-mono font-bold bg-white/10 px-1.5 py-0.2 rounded text-emerald-300">
-              {formatElapsed(elapsedSeconds)}
-            </span>
+            
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="text-xs bg-white/15 hover:bg-white/25 px-1.5 py-0.2 rounded-full border border-white/20 flex items-center gap-0.5 active:scale-95 transition-all"
+                title="Tap to change avatar emoji"
+              >
+                <span>{userEmoji}</span>
+                <span className="text-[7px] text-slate-300 font-bold">▼</span>
+              </button>
+              <span className="text-[9px] font-mono font-bold bg-white/10 px-1.5 py-0.2 rounded text-emerald-300">
+                {formatElapsed(elapsedSeconds)}
+              </span>
+            </div>
           </div>
 
           <div className="flex items-baseline justify-between my-0.5">
@@ -144,12 +187,39 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
     }
 
     return (
-      <div className={`h-[88px] bg-white/95 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-slate-200/90 flex flex-col justify-between select-none ${className}`}>
+      <div className={`relative h-[88px] bg-white/95 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-slate-200/90 flex flex-col justify-between select-none ${className}`}>
+        {/* Interactive Emoji Selector Popup */}
+        {showEmojiPicker && (
+          <div className="absolute inset-0 z-50 bg-slate-900/95 backdrop-blur-md rounded-2xl p-2 flex flex-col justify-between border border-blue-400/50 shadow-2xl text-white animate-fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-blue-300 uppercase tracking-wider">Choose Avatar Emoji</span>
+              <button onClick={() => setShowEmojiPicker(false)} className="text-xs text-slate-400 hover:text-white px-1 font-bold">✕</button>
+            </div>
+            <div className="grid grid-cols-5 gap-1 my-0.5">
+              {EMOJI_OPTIONS.map(em => (
+                <button
+                  key={em}
+                  onClick={() => handleSelectEmoji(em)}
+                  className={`w-7 h-7 text-sm rounded-lg flex items-center justify-center transition-all ${userEmoji === em ? 'bg-blue-600 ring-2 ring-white scale-110' : 'bg-white/10 hover:bg-white/25'}`}
+                >
+                  {em}
+                </button>
+              ))}
+            </div>
+            <p className="text-[7.5px] text-slate-400 text-center leading-none">Shown under bus or at your spot if off-track</p>
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-black text-slate-900 tracking-tight">Inside {busNumber}?</span>
-          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-            Broadcaster
-          </span>
+          <button
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-1.5 py-0.5 rounded-full text-xs transition-all active:scale-95"
+            title="Tap to choose your avatar emoji (default: 😎)"
+          >
+            <span>{userEmoji}</span>
+            <span className="text-[8px] text-slate-500 font-bold">▼</span>
+          </button>
         </div>
         <p className="text-[10px] text-slate-500 leading-tight">
           Locate & broadcast phone GPS

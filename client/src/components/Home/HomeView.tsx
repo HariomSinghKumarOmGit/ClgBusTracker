@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapContainer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Bus, BusRoute, RouteStop } from '../../types';
-import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createAccuratePersonMarkerIcon } from '../Map/CustomMarkers';
+import { Bus, BusRoute, RouteStop, OffTrackPassenger } from '../../types';
+import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createAccuratePersonMarkerIcon, createOffTrackEmojiMarkerIcon } from '../Map/CustomMarkers';
 import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2, MapPin } from 'lucide-react';
 import { GoogleMapTileLayer, GoogleMapZoomButtons, GoogleMapLayerSelector, LiveTrafficBadge } from '../Map/MapControls';
 import { MapTheme, DEFAULT_MAP_THEME } from '../Map/mapConfig';
 import { InsideBusController } from '../Bus/InsideBusController';
 import { backgroundTracker } from '../../services/backgroundTracker';
+import { isPointOnTrack } from '../../utils/geoUtils';
 
 interface HomeViewProps {
   route: BusRoute | null;
@@ -94,6 +95,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   // Person GPS Location state — strictly populated ONLY when "Inside Bus" tracking is active
   const [isInsideBus, setIsInsideBus] = useState<boolean>(() => backgroundTracker.getState().isTracking);
+  const [activeUserEmoji, setActiveUserEmoji] = useState<string>(() => backgroundTracker.getState().userEmoji || userEmoji || '😎');
+  const [isPersonOnTrack, setIsPersonOnTrack] = useState<boolean>(() => backgroundTracker.getState().isOnTrack);
   const [personLocation, setPersonLocation] = useState<[number, number] | null>(null);
   const [personAccuracy, setPersonAccuracy] = useState<number | null>(null);
 
@@ -112,12 +115,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
   }, [bus?.last_known_location?.latitude, bus?.last_known_location?.longitude]);
 
   // Synchronize location strictly with backgroundTracker
-  // If user has NOT clicked "I'm Inside Bus": personLocation is null, zero location is tracked or shown.
-  // When user clicks "I'm Inside Bus": personLocation is populated with real phone GPS and shown on map.
+  // 1. If user has NOT clicked "I'm Inside Bus": personLocation is null, zero location is tracked or shown.
+  // 2. If user clicked "I'm Inside Bus":
+  //    - If on track: person is inside bus, bus is located where max locations are clustered, emoji shown under bus.
+  //    - If off track: person's location is shown by their individual emoji, not by bus.
   useEffect(() => {
     let hasCenteredOnce = false;
+    let lastTrackState = true;
     const unsub = backgroundTracker.subscribe((state) => {
       setIsInsideBus(state.isTracking);
+      setActiveUserEmoji(state.userEmoji);
+      setIsPersonOnTrack(state.isOnTrack);
+
       if (state.isTracking && state.currentLocation) {
         const realCoord: [number, number] = [
           state.currentLocation.latitude,
@@ -125,7 +134,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
         ];
         setPersonLocation(realCoord);
         setPersonAccuracy(state.currentLocation.accuracy);
-        setCurrentBusCoord(realCoord);
+
+        // Alert user if they moved off route
+        if (!state.isOnTrack && lastTrackState) {
+          lastTrackState = false;
+          showToast(`⚠️ Off Route: Showing your ${state.userEmoji} emoji location instead of bus`);
+        } else if (state.isOnTrack && !lastTrackState) {
+          lastTrackState = true;
+          showToast(`🟢 On Track: You are verified inside ${bus?.number || 'Bus 01'}`);
+        }
+
+        // Only update local bus coordinate if on track
+        if (state.isOnTrack) {
+          setCurrentBusCoord(realCoord);
+        }
 
         // Auto fly map to real phone GPS location on first fix
         if (!hasCenteredOnce) {
@@ -137,10 +159,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
         setPersonLocation(null);
         setPersonAccuracy(null);
         hasCenteredOnce = false;
+        lastTrackState = true;
       }
     });
     return () => unsub();
-  }, []);
+  }, [bus?.number]);
 
   // Follow bus if user enabled "FOLLOWING / GO"
   useEffect(() => {
@@ -417,37 +440,58 @@ export const HomeView: React.FC<HomeViewProps> = ({
             }}
           />
 
-          {/* Person's Real Accurate GPS Location Marker & Halo — ONLY shown when user taps "I'm Inside Bus" */}
-          {isInsideBus && personLocation && (
-            <>
-              {personAccuracy && (
-                <Circle
-                  center={personLocation}
-                  radius={personAccuracy}
-                  pathOptions={{
-                    color: '#2563eb',
-                    fillColor: '#3b82f6',
-                    fillOpacity: 0.16,
-                    weight: 1.5,
-                    dashArray: '3, 6'
-                  }}
-                />
-              )}
-              <Marker position={personLocation} icon={createAccuratePersonMarkerIcon(userEmoji)}>
+          {/* GPS Accuracy Circle — Shown when user is tracking */}
+          {isInsideBus && personLocation && personAccuracy && (
+            <Circle
+              center={personLocation}
+              radius={personAccuracy}
+              pathOptions={{
+                color: isPersonOnTrack ? '#2563eb' : '#d97706',
+                fillColor: isPersonOnTrack ? '#3b82f6' : '#f59e0b',
+                fillOpacity: 0.16,
+                weight: 1.5,
+                dashArray: '3, 6'
+              }}
+            />
+          )}
+
+          {/* Off-Track Passenger: Shown by EMOJI (not by bus) when off the route track */}
+          {isInsideBus && personLocation && !isPersonOnTrack && (
+            <Marker position={personLocation} icon={createOffTrackEmojiMarkerIcon(activeUserEmoji)}>
+              <Popup closeButton={false}>
+                <div className="text-center font-bold text-xs p-1 min-w-[150px]">
+                  <p className="text-amber-700">📍 Off Route: {activeUserEmoji}</p>
+                  <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+                    Showing your emoji location (not bus)
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                    {personLocation[0].toFixed(6)}, {personLocation[1].toFixed(6)}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          )}
+
+          {/* Connected Off-Track Passengers from Other Devices: Shown by Emoji */}
+          {((bus as any)?.off_track_passengers as OffTrackPassenger[] | undefined)?.map((otp) => {
+            if (isInsideBus && personLocation && Math.abs(otp.latitude - personLocation[0]) < 0.0001 && Math.abs(otp.longitude - personLocation[1]) < 0.0001) {
+              return null;
+            }
+            return (
+              <Marker
+                key={otp.device_id}
+                position={[otp.latitude, otp.longitude]}
+                icon={createOffTrackEmojiMarkerIcon(otp.emoji || '😎')}
+              >
                 <Popup closeButton={false}>
-                  <div className="text-center font-bold text-xs p-1 min-w-[150px]">
-                    <p className="text-blue-700">📍 Your Real Location (Inside Bus)</p>
-                    <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
-                      GPS Accuracy: ±{personAccuracy}m
-                    </p>
-                    <p className="text-[9px] text-slate-400 font-mono mt-0.5">
-                      {personLocation[0].toFixed(6)}, {personLocation[1].toFixed(6)}
-                    </p>
+                  <div className="p-1 text-center font-bold text-xs">
+                    <p className="text-amber-700 font-bold">Passenger {otp.emoji}</p>
+                    <p className="text-[10px] text-slate-500">Off bus route</p>
                   </div>
                 </Popup>
               </Marker>
-            </>
-          )}
+            );
+          })}
 
           {/* Route Stop Nodes */}
           {stops.map((stop: RouteStop, index: number) => {
@@ -487,13 +531,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
             );
           })}
 
-          {/* LIVE MOVING BUS MARKER (Image 1 Style) */}
+          {/* LIVE MOVING BUS MARKER (Image 1 Style with Numbered Emoji Dot below) */}
           <Marker
             position={currentBusCoord}
             icon={createImage1BusMarkerIcon({
               countdownText: `${nextStopInfo.etaMinutes}m`,
-              isOccupied: [true, true, true, false, false, false],
-              status: isNavigating ? 'MOVING' : (bus?.status || 'MOVING')
+              status: isNavigating ? 'MOVING' : (bus?.status || 'MOVING'),
+              passengerCount: (bus as any)?.passenger_count ?? (isInsideBus && isPersonOnTrack ? 1 : 1),
+              passengerEmojis: (bus as any)?.passenger_emojis && (bus as any).passenger_emojis.length > 0
+                ? (bus as any).passenger_emojis
+                : [activeUserEmoji]
             })}
             zIndexOffset={1000}
           >

@@ -4,6 +4,7 @@
 
 import { socket } from './socket';
 import { api } from './api';
+import { isPointOnTrack } from '../utils/geoUtils';
 
 export interface TrackerLocationUpdate {
   latitude: number;
@@ -13,6 +14,7 @@ export interface TrackerLocationUpdate {
   accuracy: number;
   timestamp: string;
   isBackground: boolean;
+  isOnTrack?: boolean;
 }
 
 export interface TrackerState {
@@ -27,6 +29,9 @@ export interface TrackerState {
   backgroundKeepAliveActive: boolean;
   gpsPermissionStatus: 'prompt' | 'granted' | 'denied';
   error: string | null;
+  userEmoji: string;
+  deviceId: string;
+  isOnTrack: boolean;
 }
 
 type StateListener = (state: TrackerState) => void;
@@ -43,7 +48,16 @@ class BackgroundTrackerService {
     wakeLockActive: false,
     backgroundKeepAliveActive: false,
     gpsPermissionStatus: 'prompt',
-    error: null
+    error: null,
+    userEmoji: typeof window !== 'undefined' ? (localStorage.getItem('clg_bus_user_emoji') || '😎') : '😎',
+    deviceId: typeof window !== 'undefined' 
+      ? (localStorage.getItem('clg_bus_device_id') || (() => {
+          const id = 'DEV-' + Math.random().toString(36).substring(2, 9);
+          localStorage.setItem('clg_bus_device_id', id);
+          return id;
+        })()) 
+      : 'DEV-DEFAULT',
+    isOnTrack: true
   };
 
   private listeners: Set<StateListener> = new Set();
@@ -89,6 +103,14 @@ class BackgroundTrackerService {
 
   setRoutePolyline(polyline: [number, number][]) {
     this.routePolyline = polyline;
+  }
+
+  setUserEmoji(emoji: string) {
+    this.state.userEmoji = emoji;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('clg_bus_user_emoji', emoji);
+    }
+    this.notify();
   }
 
   setMode(mode: 'real' | 'simulate') {
@@ -299,6 +321,9 @@ class BackgroundTrackerService {
 
   // Broadcast location over Socket.io and REST fallback
   private handleNewLocation(update: TrackerLocationUpdate) {
+    const onTrack = isPointOnTrack([update.latitude, update.longitude], this.routePolyline, 250);
+    this.state.isOnTrack = onTrack;
+    update.isOnTrack = onTrack;
     this.state.currentLocation = update;
     this.state.packetsSent += 1;
     this.notify();
@@ -306,6 +331,9 @@ class BackgroundTrackerService {
     // 1. High-frequency Socket.IO real-time broadcast
     socket.emit('bus:send_location', {
       busId: this.state.busId,
+      deviceId: this.state.deviceId,
+      emoji: this.state.userEmoji,
+      isOnTrack: onTrack,
       latitude: update.latitude,
       longitude: update.longitude,
       speed_kmh: update.speedKmh,
@@ -316,6 +344,9 @@ class BackgroundTrackerService {
     // Also emit driver:send_location for legacy listener compatibility
     socket.emit('driver:send_location', {
       busId: this.state.busId,
+      deviceId: this.state.deviceId,
+      emoji: this.state.userEmoji,
+      isOnTrack: onTrack,
       latitude: update.latitude,
       longitude: update.longitude,
       speed_kmh: update.speedKmh,
@@ -323,15 +354,18 @@ class BackgroundTrackerService {
       accuracy_meters: update.accuracy
     });
 
-    // 2. Periodic REST fallback every ~10 updates (in case socket drops)
+    // 2. Periodic REST fallback every ~8 updates (in case socket drops)
     if (this.state.packetsSent % 8 === 0) {
       api.sendBusLocation(this.state.busId, {
+        deviceId: this.state.deviceId,
+        emoji: this.state.userEmoji,
+        isOnTrack: onTrack,
         latitude: update.latitude,
         longitude: update.longitude,
         speed_kmh: update.speedKmh,
         heading: update.heading,
         accuracy_meters: update.accuracy
-      }).catch(() => {});
+      } as any).catch(() => {});
     }
   }
 

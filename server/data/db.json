@@ -2961,12 +2961,12 @@
       "status": "IDLE",
       "current_trip_id": null,
       "last_known_location": {
-        "latitude": 28.46424384306538,
-        "longitude": 77.50309792475339,
+        "latitude": 28.464094197299968,
+        "longitude": 77.50286594403258,
         "speed_kmh": 0,
-        "heading": 181,
-        "accuracy_meters": 52,
-        "timestamp": "2026-11-20T07:57:54.271Z"
+        "heading": 259,
+        "accuracy_meters": 55,
+        "timestamp": "2026-11-20T08:39:49.385Z"
       }
     }
   ],
