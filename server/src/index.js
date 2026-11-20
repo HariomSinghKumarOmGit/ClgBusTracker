@@ -81,6 +81,56 @@ app.get('/api/buses/:id', (req, res) => {
   res.json(bus);
 });
 
+// Update bus location (from commuter inside bus or driver)
+app.post('/api/buses/:id/location', (req, res) => {
+  const { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins } = req.body;
+  if (latitude === undefined || longitude === undefined) {
+    return res.status(400).json({ error: 'latitude and longitude are required' });
+  }
+
+  const result = db.updateBusDirectLocation(req.params.id, {
+    latitude,
+    longitude,
+    speed_kmh,
+    heading,
+    accuracy_meters,
+    delay_mins
+  });
+
+  if (!result || !result.bus) {
+    return res.status(404).json({ error: 'Bus not found' });
+  }
+
+  // Real-time broadcast to all connected passengers and maps
+  io.emit('bus:location_update', {
+    bus_id: result.bus.id,
+    trip_id: result.trip?.id || null,
+    latitude: result.bus.last_known_location.latitude,
+    longitude: result.bus.last_known_location.longitude,
+    speed_kmh: result.bus.last_known_location.speed_kmh,
+    heading: result.bus.last_known_location.heading,
+    accuracy_meters: result.bus.last_known_location.accuracy_meters,
+    status: result.bus.status,
+    current_stop_id: result.trip?.current_stop_id || null,
+    next_stop_id: result.trip?.next_stop_id || null,
+    eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
+    last_update: result.bus.last_known_location.timestamp
+  });
+
+  res.json({ success: true, bus: result.bus, trip: result.trip });
+});
+
+// Start/Stop tracking notifications
+app.post('/api/buses/:id/stop-tracking', (req, res) => {
+  const bus = db.getBus(req.params.id);
+  if (bus) {
+    bus.status = 'IDLE';
+    db.persist();
+    io.emit('bus:status_change', { bus_id: req.params.id, status: 'IDLE' });
+  }
+  res.json({ success: true });
+});
+
 // Routes & Stoppages
 app.get('/api/routes', (req, res) => {
   res.json(db.getRoutes());
@@ -398,38 +448,106 @@ io.on('connection', socket => {
     server_time: new Date().toISOString()
   });
 
-  // Driver transmits live high-frequency GPS position
+  // Driver / Inside-Bus Passenger transmits live high-frequency GPS position
   socket.on('driver:send_location', data => {
-    const { tripId, latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins } = data;
-    if (!tripId || latitude === undefined || longitude === undefined) return;
+    const { tripId, busId = 'BUS-01', latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins } = data;
+    if (latitude === undefined || longitude === undefined) return;
 
-    const updatedTrip = db.updateTripLocation(tripId, {
-      latitude: Number(latitude),
-      longitude: Number(longitude),
-      speed_kmh: Number(speed_kmh || 0),
-      heading: Number(heading || 0),
-      accuracy_meters: Number(accuracy_meters || 5),
-      delay_mins: Number(delay_mins || 0)
-    });
-
-    if (updatedTrip) {
-      const bus = db.getBus(updatedTrip.bus_id);
-
-      // Sub-second broadcast to students
-      io.emit('bus:location_update', {
-        bus_id: updatedTrip.bus_id,
-        trip_id: updatedTrip.id,
-        latitude: updatedTrip.latitude,
-        longitude: updatedTrip.longitude,
-        speed_kmh: updatedTrip.speed_kmh,
-        heading: updatedTrip.heading,
-        accuracy_meters: accuracy_meters || 5,
-        status: bus ? bus.status : 'MOVING',
-        current_stop_id: updatedTrip.current_stop_id,
-        next_stop_id: updatedTrip.next_stop_id,
-        eta_to_next_stop_mins: updatedTrip.eta_to_next_stop_mins,
-        last_update: updatedTrip.last_update
+    let result;
+    if (tripId) {
+      const updatedTrip = db.updateTripLocation(tripId, {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        speed_kmh: Number(speed_kmh || 0),
+        heading: Number(heading || 0),
+        accuracy_meters: Number(accuracy_meters || 5),
+        delay_mins: Number(delay_mins || 0)
       });
+      const bus = updatedTrip ? db.getBus(updatedTrip.bus_id) : null;
+      result = { bus, trip: updatedTrip };
+    } else {
+      result = db.updateBusDirectLocation(busId, {
+        latitude,
+        longitude,
+        speed_kmh,
+        heading,
+        accuracy_meters,
+        delay_mins
+      });
+    }
+
+    if (result && result.bus) {
+      // Sub-second broadcast to all students and riders
+      io.emit('bus:location_update', {
+        bus_id: result.bus.id,
+        trip_id: result.trip?.id || null,
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        speed_kmh: Number(speed_kmh || 0),
+        heading: Number(heading || 0),
+        accuracy_meters: Number(accuracy_meters || 5),
+        status: result.bus.status || 'MOVING',
+        current_stop_id: result.trip?.current_stop_id || null,
+        next_stop_id: result.trip?.next_stop_id || null,
+        eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
+        last_update: new Date().toISOString()
+      });
+    }
+  });
+
+  // Direct bus location update event (used by Inside Bus passenger or driver)
+  socket.on('bus:send_location', data => {
+    const { busId = 'BUS-01', tripId, latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins } = data;
+    if (latitude === undefined || longitude === undefined) return;
+
+    let result;
+    if (tripId) {
+      const updatedTrip = db.updateTripLocation(tripId, {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        speed_kmh: Number(speed_kmh || 0),
+        heading: Number(heading || 0),
+        accuracy_meters: Number(accuracy_meters || 5),
+        delay_mins: Number(delay_mins || 0)
+      });
+      const bus = updatedTrip ? db.getBus(updatedTrip.bus_id) : null;
+      result = { bus, trip: updatedTrip };
+    } else {
+      result = db.updateBusDirectLocation(busId, {
+        latitude,
+        longitude,
+        speed_kmh,
+        heading,
+        accuracy_meters,
+        delay_mins
+      });
+    }
+
+    if (result && result.bus) {
+      io.emit('bus:location_update', {
+        bus_id: result.bus.id,
+        trip_id: result.trip?.id || null,
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        speed_kmh: Number(speed_kmh || 0),
+        heading: Number(heading || 0),
+        accuracy_meters: Number(accuracy_meters || 5),
+        status: result.bus.status || 'MOVING',
+        current_stop_id: result.trip?.current_stop_id || null,
+        next_stop_id: result.trip?.next_stop_id || null,
+        eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
+        last_update: new Date().toISOString()
+      });
+    }
+  });
+
+  // Stop tracking event
+  socket.on('bus:stop_tracking', ({ busId = 'BUS-01' }) => {
+    const bus = db.getBus(busId);
+    if (bus) {
+      bus.status = 'IDLE';
+      db.persist();
+      io.emit('bus:status_change', { bus_id: busId, status: 'IDLE' });
     }
   });
 

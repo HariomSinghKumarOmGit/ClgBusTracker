@@ -2,7 +2,7 @@
   "routes": [
     {
       "id": "ROUTE-01",
-      "name": "Route 01: Saket \u2192 Delhi Technical Campus",
+      "name": "Route 01: Saket → Delhi Technical Campus",
       "code": "R01",
       "description": "Saket, Delhi to Delhi Technical Campus, 28/1 Knowledge Park III, Greater Noida",
       "start_point": "Saket, Delhi",
@@ -2961,12 +2961,12 @@
       "status": "IDLE",
       "current_trip_id": null,
       "last_known_location": {
-        "latitude": 28.535,
-        "longitude": 77.24,
-        "speed_kmh": 42,
-        "heading": 95,
-        "accuracy_meters": 4,
-        "timestamp": "2026-11-19T16:17:42.636Z"
+        "latitude": 28.46424384306538,
+        "longitude": 77.50309792475339,
+        "speed_kmh": 0,
+        "heading": 181,
+        "accuracy_meters": 52,
+        "timestamp": "2026-11-20T07:57:54.271Z"
       }
     }
   ],

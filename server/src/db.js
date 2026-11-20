@@ -67,6 +67,70 @@ class Database {
     return bus;
   }
 
+  updateBusDirectLocation(busId, { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins }) {
+    let bus = this.getBus(busId);
+    if (!bus && this.data.buses.length > 0) {
+      bus = this.data.buses[0];
+    }
+    if (!bus) return null;
+
+    const timestamp = new Date().toISOString();
+    const speed = Number(speed_kmh || 0);
+    bus.status = speed > 3 ? 'MOVING' : (bus.status === 'IDLE' ? 'IDLE' : 'STOPPED');
+    bus.last_known_location = {
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+      speed_kmh: speed,
+      heading: Number(heading || 0),
+      accuracy_meters: Number(accuracy_meters || 5),
+      timestamp
+    };
+
+    // If there's an active trip or assigned route, calculate stops
+    let trip = this.getActiveTrip(bus.id);
+    const routeId = trip ? trip.route_id : (bus.assigned_route_id || 'ROUTE-01');
+    const stops = this.getStops(routeId);
+
+    if (trip) {
+      trip.latitude = Number(latitude);
+      trip.longitude = Number(longitude);
+      trip.speed_kmh = speed;
+      if (heading !== undefined) trip.heading = Number(heading);
+      if (delay_mins !== undefined) trip.delay_mins = Number(delay_mins);
+      trip.last_update = timestamp;
+
+      if (stops.length > 0) {
+        let minDist = Infinity;
+        let nearestIndex = 0;
+        stops.forEach((s, idx) => {
+          const d = Math.hypot(s.latitude - latitude, s.longitude - longitude);
+          if (d < minDist) {
+            minDist = d;
+            nearestIndex = idx;
+          }
+        });
+        const approxKm = minDist * 111;
+        if (approxKm < 0.3) {
+          trip.current_stop_id = stops[nearestIndex].id;
+          trip.next_stop_id = stops[nearestIndex + 1]?.id || stops[nearestIndex].id;
+        } else {
+          const nextIdx = Math.min(nearestIndex + 1, stops.length - 1);
+          trip.next_stop_id = stops[nextIdx].id;
+        }
+
+        const nextStop = stops.find(s => s.id === trip.next_stop_id);
+        if (nextStop) {
+          const distToNextKm = Math.hypot(nextStop.latitude - latitude, nextStop.longitude - longitude) * 111;
+          const effectiveSpeed = (speed > 10) ? speed : 35;
+          trip.eta_to_next_stop_mins = Math.max(1, Math.round((distToNextKm / effectiveSpeed) * 60));
+        }
+      }
+    }
+
+    this.persist();
+    return { bus, trip, stops };
+  }
+
   // --- ROUTES ---
   getRoutes() {
     return this.data.routes;

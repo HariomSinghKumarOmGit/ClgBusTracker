@@ -2,12 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import { NavTab, Bus, BusRoute, RouteStop, Driver, UserProfile } from './types';
 import { api } from './services/api';
+import { socket } from './services/socket';
+import { backgroundTracker, TrackerState } from './services/backgroundTracker';
 import { HomeView } from './components/Home/HomeView';
 import { TransitExploreView } from './components/Map/TransitExploreView';
 import { DriverDetailsView } from './components/Driver/DriverDetailsView';
 import { ProfileView } from './components/Profile/ProfileView';
 import { BottomNavBar } from './components/Navigation/BottomNavBar';
 import { RideAlertsModal } from './components/Modals/RideAlertsModal';
+import { Square, Zap, Bus as BusIcon } from 'lucide-react';
 
 const DEFAULT_ROUTE_01: BusRoute = {
   id: 'ROUTE-01',
@@ -61,6 +64,83 @@ export function App() {
   const [buses, setBuses] = useState<Bus[]>([DEFAULT_BUS_01]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [trackerState, setTrackerState] = useState<TrackerState>(backgroundTracker.getState());
+
+  // Subscribe to background tracker state changes
+  useEffect(() => {
+    const unsub = backgroundTracker.subscribe(setTrackerState);
+    return () => unsub();
+  }, []);
+
+  // Listen to live bus location updates from Socket.IO (sub-second sync)
+  useEffect(() => {
+    const handleLocationUpdate = (data: any) => {
+      if (!data) return;
+      const updatedLoc = {
+        latitude: Number(data.latitude),
+        longitude: Number(data.longitude),
+        speed_kmh: Number(data.speed_kmh || 0),
+        heading: Number(data.heading || 0),
+        accuracy_meters: Number(data.accuracy_meters || 5),
+        timestamp: data.last_update || new Date().toISOString()
+      };
+
+      setBus(prev => ({
+        ...prev,
+        status: data.status || (updatedLoc.speed_kmh > 3 ? 'MOVING' : 'STOPPED'),
+        last_known_location: updatedLoc
+      }));
+
+      setBuses(prev => prev.map(b => {
+        if (b.id === data.bus_id || (!data.bus_id && b.id === 'BUS-01')) {
+          return {
+            ...b,
+            status: data.status || (updatedLoc.speed_kmh > 3 ? 'MOVING' : 'STOPPED'),
+            last_known_location: updatedLoc
+          };
+        }
+        return b;
+      }));
+    };
+
+    const handleStatusChange = (data: any) => {
+      if (data?.status) {
+        setBus(prev => ({ ...prev, status: data.status }));
+      }
+    };
+
+    socket.on('bus:location_update', handleLocationUpdate);
+    socket.on('bus:status_change', handleStatusChange);
+
+    // Multi-device polling fallback (ensures cross-device synchronization if WebSockets are idle)
+    const pollInterval = setInterval(async () => {
+      try {
+        const fetchedBuses = await api.getBuses();
+        if (fetchedBuses && fetchedBuses.length > 0) {
+          const b01 = fetchedBuses.find(b => b.id === 'BUS-01' || b.number === '01' || b.number === 'Bus 01') || fetchedBuses[0];
+          if (b01?.last_known_location) {
+            setBus(prev => {
+              if (
+                prev.last_known_location?.latitude !== b01.last_known_location.latitude ||
+                prev.last_known_location?.longitude !== b01.last_known_location.longitude ||
+                prev.last_known_location?.speed_kmh !== b01.last_known_location.speed_kmh
+              ) {
+                return b01;
+              }
+              return prev;
+            });
+          }
+          setBuses(fetchedBuses);
+        }
+      } catch (e) {}
+    }, 2500);
+
+    return () => {
+      clearInterval(pollInterval);
+      socket.off('bus:location_update', handleLocationUpdate);
+      socket.off('bus:status_change', handleStatusChange);
+    };
+  }, []);
 
   // Local user profile state
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
@@ -115,6 +195,42 @@ export function App() {
 
   return (
     <div className="h-[100dvh] w-full max-w-md mx-auto bg-slate-100 flex flex-col font-sans overflow-hidden shadow-2xl relative select-none">
+      {/* Global Background Travel Active Floating Bar (Visible when navigating other tabs while inside bus) */}
+      {trackerState.isTracking && currentTab !== 'home' && (
+        <div className="absolute top-2 left-3 right-3 z-[800] bg-slate-900/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl p-2.5 px-3.5 shadow-2xl text-white flex items-center justify-between animate-fade-in">
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <BusIcon className="w-4 h-4 text-emerald-400" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            </div>
+            <div>
+              <span className="text-[11px] font-black text-emerald-300 uppercase tracking-wider block leading-tight">
+                Inside Bus 01 • Live Travel
+              </span>
+              <span className="text-[10px] text-slate-300 font-medium">
+                {trackerState.currentLocation?.speedKmh ?? 0} km/h • BG Active
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentTab('home')}
+              className="text-[11px] font-bold text-blue-300 hover:text-white px-2 py-1 bg-white/10 rounded-lg"
+            >
+              View
+            </button>
+            <button
+              onClick={() => backgroundTracker.stopTracking()}
+              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold rounded-lg shadow-sm flex items-center gap-1"
+            >
+              <Square className="w-3 h-3 fill-white" />
+              <span>Exit</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic View Display Based on Bottom Navigation Tab */}
       <main className="flex-1 h-full w-full overflow-hidden relative">
         {/* Tab 1: Home View (Image 1: Route 01, Destination Delhi Technical Campus, Countdown, Live Navigation) */}

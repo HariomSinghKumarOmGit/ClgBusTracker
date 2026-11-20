@@ -1,12 +1,14 @@
 // client/src/components/Home/HomeView.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapContainer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Bus, BusRoute, RouteStop, ArrivalCardData } from '../../types';
+import { Bus, BusRoute, RouteStop } from '../../types';
 import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createUserPinIcon } from '../Map/CustomMarkers';
-import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2 } from 'lucide-react';
+import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2, MapPin } from 'lucide-react';
 import { GoogleMapTileLayer, GoogleMapZoomButtons, GoogleMapLayerSelector, LiveTrafficBadge } from '../Map/MapControls';
 import { MapTheme, DEFAULT_MAP_THEME } from '../Map/mapConfig';
+import { InsideBusController } from '../Bus/InsideBusController';
+import { backgroundTracker } from '../../services/backgroundTracker';
 
 interface HomeViewProps {
   route: BusRoute | null;
@@ -95,6 +97,41 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return [28.5204, 77.2014];
   });
 
+  // Keep bus coordinate in sync with live socket telemetry from any device
+  useEffect(() => {
+    if (bus?.last_known_location) {
+      setCurrentBusCoord([bus.last_known_location.latitude, bus.last_known_location.longitude]);
+    }
+  }, [bus?.last_known_location?.latitude, bus?.last_known_location?.longitude]);
+
+  // Direct sync with local phone GPS from backgroundTracker
+  useEffect(() => {
+    let hasCenteredOnce = false;
+    const unsub = backgroundTracker.subscribe((state) => {
+      if (state.isTracking && state.currentLocation) {
+        const realCoord: [number, number] = [
+          state.currentLocation.latitude,
+          state.currentLocation.longitude
+        ];
+        setCurrentBusCoord(realCoord);
+
+        // Auto fly map to real phone GPS location on first fix
+        if (!hasCenteredOnce) {
+          hasCenteredOnce = true;
+          setRecenterCount(c => c + 1);
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Follow bus if user enabled "FOLLOWING / GO"
+  useEffect(() => {
+    if (isNavigating && currentBusCoord) {
+      setRecenterCount(c => c + 1);
+    }
+  }, [isNavigating, currentBusCoord[0], currentBusCoord[1]]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setCountdownSeconds(prev => {
@@ -105,27 +142,57 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (!isNavigating) return;
+  // Dynamically calculate the Next Stop & ETA based on real bus GPS coordinates
+  const nextStopInfo = useMemo(() => {
+    if (!stops || stops.length === 0) {
+      return {
+        name: 'Delhi Technical Campus',
+        stopIndex: 6,
+        totalStops: 6,
+        distKm: 1.2,
+        etaMinutes: 2,
+        scheduledTime: '09:00 AM',
+        isTerminal: true
+      };
+    }
 
-    let step = 0;
-    const navPolyline: [number, number][] = route?.polyline && route.polyline.length > 0 
-      ? route.polyline 
-      : [
-          [28.5350, 77.1980],
-          [28.5312, 77.2020],
-          [28.5280, 77.2060],
-          [28.5255, 77.2095],
-          [28.5230, 77.2135]
-        ];
+    const [bLat, bLng] = currentBusCoord;
 
-    const moveInterval = setInterval(() => {
-      step = (step + 1) % navPolyline.length;
-      setCurrentBusCoord(navPolyline[step]);
-    }, 2500);
+    // Find nearest stop along route
+    let minDistance = Infinity;
+    let closestIndex = 0;
 
-    return () => clearInterval(moveInterval);
-  }, [isNavigating, route]);
+    stops.forEach((stop, index) => {
+      const d = Math.hypot(stop.latitude - bLat, stop.longitude - bLng) * 111;
+      if (d < minDistance) {
+        minDistance = d;
+        closestIndex = index;
+      }
+    });
+
+    // If within 300m of a stop, target the next upcoming stop unless at destination
+    let nextIndex = closestIndex;
+    if (minDistance < 0.3 && closestIndex < stops.length - 1) {
+      nextIndex = closestIndex + 1;
+    }
+
+    const targetStop = stops[nextIndex] || stops[stops.length - 1];
+    const distToTargetKm = Math.hypot(targetStop.latitude - bLat, targetStop.longitude - bLng) * 111;
+
+    const currentSpeed = bus?.last_known_location?.speed_kmh || 0;
+    const effectiveSpeed = currentSpeed > 8 ? currentSpeed : 35; // 35 km/h urban speed
+    const etaMinutes = Math.max(1, Math.round((distToTargetKm / effectiveSpeed) * 60));
+
+    return {
+      name: targetStop.name,
+      stopIndex: nextIndex + 1,
+      totalStops: stops.length,
+      distKm: Number(distToTargetKm.toFixed(1)),
+      etaMinutes,
+      scheduledTime: targetStop.scheduled_time || '09:00 AM',
+      isTerminal: targetStop.is_terminal
+    };
+  }, [stops, currentBusCoord, bus?.last_known_location?.speed_kmh]);
 
   const playBeep = () => {
     try {
@@ -146,7 +213,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const handleTogglePin = () => {
     setIsPinned(!isPinned);
     playBeep();
-    showToast(!isPinned ? 'Route 38 pinned to your favorites!' : 'Route unpinned');
+    showToast(!isPinned ? 'Route 01 pinned to your favorites!' : 'Route unpinned');
   };
 
   const handleToggleGo = () => {
@@ -154,10 +221,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     const nextState = !isNavigating;
     setIsNavigating(nextState);
     if (nextState) {
-      showToast('🚀 Live turn-by-turn navigation started! Bus is en route.');
+      showToast('🚀 Live Following Bus — Map will track live location.');
       setRecenterCount(c => c + 1);
     } else {
-      showToast('Navigation ended.');
+      showToast('Live following paused.');
     }
   };
 
@@ -171,43 +238,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
-
-  const arrivalCards: ArrivalCardData[] = [
-    {
-      id: 'arr-1',
-      bus_number: 'Bus 38-A',
-      minutes: 2,
-      seconds: countdownSeconds,
-      occupancy_level: 'medium',
-      occupancy_dots: [true, true, true, false, false, false],
-      has_wifi: true,
-      is_accessible: true,
-      route_code: '01',
-      destination: 'Delhi Technical Campus'
-    },
-    {
-      id: 'arr-2',
-      bus_number: 'Bus 01-B',
-      minutes: 8,
-      occupancy_level: 'low',
-      occupancy_dots: [true, true, false, false, false, false],
-      has_wifi: true,
-      is_accessible: true,
-      route_code: '01',
-      destination: 'Delhi Technical Campus'
-    },
-    {
-      id: 'arr-3',
-      bus_number: 'Bus 01-C',
-      minutes: 13,
-      occupancy_level: 'high',
-      occupancy_dots: [true, true, true, true, true, false],
-      has_wifi: true,
-      is_accessible: true,
-      route_code: '01',
-      destination: 'Delhi Technical Campus'
-    }
-  ];
 
   const polylineCoords: [number, number][] = route?.polyline && route.polyline.length > 0 
     ? route.polyline 
@@ -438,22 +468,30 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <Marker
             position={currentBusCoord}
             icon={createImage1BusMarkerIcon({
-              countdownText: `${countdownSeconds}s`,
+              countdownText: `${nextStopInfo.etaMinutes}m`,
               isOccupied: [true, true, true, false, false, false],
               status: isNavigating ? 'MOVING' : (bus?.status || 'MOVING')
             })}
             zIndexOffset={1000}
           >
             <Popup closeButton={false}>
-              <div className="p-1.5 min-w-[160px] text-center">
+              <div className="p-2 min-w-[180px] text-center">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-black text-sm text-[#1e3a8a]">Bus 38</span>
+                  <span className="font-black text-sm text-[#1e3a8a]">{bus?.number || 'Bus 01'}</span>
                   <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full">
-                    LIVE 38 km/h
+                    LIVE {bus?.last_known_location?.speed_kmh ?? 0} km/h
                   </span>
                 </div>
-                <p className="text-xs text-slate-600">Arriving in {countdownSeconds} seconds at 15th & Market</p>
-                <p className="text-[11px] text-slate-400 mt-1">Plate: DL 1P B 3838</p>
+                <p className="text-xs font-bold text-slate-800">
+                  Next: {nextStopInfo.name}
+                </p>
+                <p className="text-[11px] text-blue-600 font-semibold mt-0.5">
+                  Arriving in ~{nextStopInfo.etaMinutes} mins ({nextStopInfo.distKm} km)
+                </p>
+                <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span>{currentBusCoord[0].toFixed(5)}, {currentBusCoord[1].toFixed(5)}</span>
+                  <span>{bus?.plate_number || 'DL 1P B 4022'}</span>
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -463,92 +501,79 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <GoogleMapZoomButtons map={mapInstance} className="absolute bottom-28 right-4 z-[450]" />
       </div>
 
-      {/* BOTTOM CONTROLS & CAROUSEL (Image 1 Style) */}
-      <div className="relative z-[500] px-4 pb-4 pt-1 pointer-events-auto">
+      {/* BOTTOM CONTROLS (Direction, Next Stop in X mins, and Inside Bus Broadcaster) */}
+      <div className="relative z-[500] px-4 pb-3 pt-1 pointer-events-auto flex flex-col gap-2">
         
-        {/* Direction Row with Slider Dots & "GO" Button */}
-        <div className="flex items-center justify-between mb-3 px-1">
+        {/* Direction Row with Slider Dots & "GO / LIVE" Follow Button */}
+        <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-full bg-[#1e3a8a]"></span>
               <span className="w-2 h-2 rounded-full bg-slate-300"></span>
             </div>
 
-            <span className="text-base font-black text-[#1e3a8a] tracking-tight">
+            <span className="text-sm font-black text-[#1e3a8a] tracking-tight">
               {currentDirection}
             </span>
           </div>
 
           <button
             onClick={handleToggleGo}
-            className={`px-7 py-3 rounded-2xl font-black text-xl tracking-wider transition-all duration-300 shadow-xl active:scale-95 flex items-center justify-center gap-1.5 ${
+            className={`px-5 py-2 rounded-2xl font-black text-sm tracking-wider transition-all duration-300 shadow-lg active:scale-95 flex items-center justify-center gap-1.5 ${
               isNavigating 
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30 ring-2 ring-emerald-400' 
                 : 'bg-[#1d4ed8] hover:bg-[#1e40af] text-white shadow-blue-600/30 hover:shadow-2xl'
             }`}
           >
-            <span>{isNavigating ? 'LIVE' : 'GO'}</span>
+            <span>{isNavigating ? 'FOLLOWING' : 'GO'}</span>
           </button>
         </div>
 
-        {/* HORIZONTALLY SCROLLING ARRIVAL CARDS CAROUSEL */}
-        <div className="flex items-stretch gap-3 overflow-x-auto no-scrollbar pb-1 pt-1 -mx-4 px-4 scroll-smooth">
-          {arrivalCards.map((card: ArrivalCardData, idx: number) => {
-            const isSelected = selectedArrivalIndex === idx;
-
-            return (
-              <div
-                key={card.id}
-                onClick={() => {
-                  setSelectedArrivalIndex(idx);
-                  playBeep();
-                }}
-                className={`flex-shrink-0 w-32 rounded-3xl p-3.5 transition-all duration-300 cursor-pointer flex flex-col justify-between select-none ${
-                  isSelected
-                    ? 'bg-[#1d4ed8] text-white shadow-xl shadow-blue-600/35 scale-[1.02]'
-                    : 'bg-white text-[#1e3a8a] border border-slate-200/90 shadow-md hover:border-blue-300'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <span className={`text-6xl font-black tracking-tighter leading-none ${isSelected ? 'text-white' : 'text-[#1e3a8a]'}`}>
-                    {card.minutes}
-                  </span>
-                  
-                  <div className="pt-1">
-                    <Radio className={`w-5 h-5 ${isSelected ? 'text-white' : 'text-[#1e3a8a]'}`} />
-                  </div>
-                </div>
-
-                <div className="mt-1">
-                  <span className={`text-xs font-bold tracking-tight ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
-                    minutes
-                  </span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-start">
-                  <div 
-                    className={`px-2 py-1 rounded-full flex items-center justify-center ${
-                      isSelected ? 'bg-white/20' : 'bg-slate-100'
-                    }`}
-                  >
-                    <div className="grid grid-cols-3 gap-1">
-                      {card.occupancy_dots.map((filled: boolean, dIdx: number) => (
-                        <span
-                          key={dIdx}
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            isSelected 
-                              ? (filled ? 'bg-white' : 'bg-white/40') 
-                              : (filled ? 'bg-[#1d4ed8]' : 'bg-slate-300')
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
+        {/* DYNAMIC NEXT STOP & LIVE ETA CARD (Replaces dummy 8/13m cards) */}
+        <div className="bg-white/95 backdrop-blur-md rounded-2xl p-3 shadow-md border border-slate-200/90 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex flex-col items-center justify-center border border-blue-100 shrink-0">
+              <Radio className="w-4 h-4 text-blue-600 animate-pulse" />
+              <span className="text-[9px] font-black text-blue-800 leading-none mt-0.5">NEXT</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Stop {nextStopInfo.stopIndex} of {nextStopInfo.totalStops}
+                </span>
+                {nextStopInfo.isTerminal && (
+                  <span className="text-[9px] bg-blue-100 text-blue-800 px-1 rounded font-bold">Campus Destination</span>
+                )}
               </div>
-            );
-          })}
+              <h4 className="text-xs font-black text-slate-900 leading-tight">
+                {nextStopInfo.name}
+              </h4>
+              <p className="text-[11px] text-slate-500 font-medium">
+                {nextStopInfo.distKm} km away • {bus?.last_known_location?.speed_kmh ?? 0} km/h • Sched: {nextStopInfo.scheduledTime}
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right flex flex-col items-end shrink-0 pl-2">
+            <div className="flex items-baseline gap-0.5">
+              <span className="text-3xl font-black text-[#1e3a8a] tracking-tight leading-none">
+                {nextStopInfo.etaMinutes}
+              </span>
+              <span className="text-xs font-bold text-slate-500">min</span>
+            </div>
+            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-100 mt-0.5">
+              ● On Time
+            </span>
+          </div>
         </div>
+
+        {/* INSIDE BUS LIVE TELEMETRY & CROWDSOURCED TRACKING CONTROLLER */}
+        <InsideBusController
+          busNumber={bus?.number || 'Bus 01'}
+          routeName={route?.name || 'Saket → Delhi Technical Campus'}
+          routePolyline={polylineCoords}
+          onRecenter={() => setRecenterCount(c => c + 1)}
+        />
       </div>
     </div>
   );

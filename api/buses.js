@@ -60,11 +60,31 @@ const defaultBuses = [
 
 export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
+  }
+
+  // Handle location update from inside bus
+  if (req.method === 'POST' || req.method === 'PUT') {
+    const busId = req.query.id || req.body.busId || req.body.id || 'BUS-01';
+    const bus = defaultBuses.find(b => b.id === busId) || defaultBuses[0];
+    
+    const { latitude, longitude, speed_kmh, heading, accuracy_meters } = req.body || {};
+    if (latitude !== undefined && longitude !== undefined) {
+      bus.status = (speed_kmh && speed_kmh > 3) ? 'MOVING' : 'STOPPED';
+      bus.last_known_location = {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        speed_kmh: Number(speed_kmh || 0),
+        heading: Number(heading || 0),
+        accuracy_meters: Number(accuracy_meters || 5),
+        timestamp: new Date().toISOString()
+      };
+    }
+    return res.status(200).json({ success: true, bus });
   }
 
   const { id } = req.query;

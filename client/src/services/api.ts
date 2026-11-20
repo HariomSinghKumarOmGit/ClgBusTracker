@@ -372,6 +372,27 @@ export const api = {
     } catch (e) {}
   },
 
+  async sendBusLocation(busId: string, data: { latitude: number; longitude: number; speed_kmh?: number; heading?: number; accuracy_meters?: number }): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/buses/${busId}/location`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+    } catch (e) {
+      // Fallback: update in-memory / local
+    }
+  },
+
+  async stopBusTracking(busId: string): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/buses/${busId}/stop-tracking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (e) {}
+  },
+
   async getPassengerActivity(routeId: string): Promise<PassengerActivity> {
     try {
       const res = await fetch(`${API_BASE}/passenger-activity/${routeId}`);
