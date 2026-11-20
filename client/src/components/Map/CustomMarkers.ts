@@ -76,7 +76,7 @@ export function createImage1BusMarkerIcon({
         </div>
       </div>
 
-      {/* Small dot numbered with chosen emoji below the bus */}
+      <!-- Small dot numbered with chosen emoji below the bus -->
       <div 
         class="mt-1 bg-white/95 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-md flex items-center justify-center gap-1 border border-blue-200 select-none animate-fade-in"
         title="${passengerCount} Passenger(s) On Board"
