@@ -88,7 +88,85 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
   const currentHeading = trackerState.currentLocation?.heading ?? 0;
 
   // -------------------------------------------------------------
-  // VIEW 1: ACTIVE LIVE TRACKING (User is physically inside the bus)
+  // COMPACT VIEW (Single-Row 2-Column Side-by-Side Mode)
+  // -------------------------------------------------------------
+  if (compact) {
+    if (trackerState.isTracking) {
+      return (
+        <div className={`h-[88px] bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-950 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-emerald-500/40 text-white flex flex-col justify-between select-none ${className}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-[10px] font-black tracking-wide text-emerald-300 uppercase">
+                ON BUS
+              </span>
+            </div>
+            <span className="text-[9px] font-mono font-bold bg-white/10 px-1.5 py-0.2 rounded text-emerald-300">
+              {formatElapsed(elapsedSeconds)}
+            </span>
+          </div>
+
+          <div className="flex items-baseline justify-between my-0.5">
+            <div className="flex items-baseline gap-0.5">
+              <span className="text-xl font-black text-emerald-400 leading-none">
+                {currentSpeed}
+              </span>
+              <span className="text-[10px] text-slate-300 font-normal">km/h</span>
+            </div>
+            <span className="text-[10px] text-blue-300 font-bold">±{currentAcc}m</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 pt-1 border-t border-white/10">
+            {onRecenter && (
+              <button
+                onClick={onRecenter}
+                className="flex-1 py-1 bg-blue-600/90 hover:bg-blue-600 text-white text-[10px] font-bold rounded-lg shadow-sm flex items-center justify-center gap-0.5 active:scale-95 transition-all"
+                title="Locate real phone position on map"
+              >
+                <MapPin className="w-2.5 h-2.5 fill-white" />
+                <span>Locate</span>
+              </button>
+            )}
+
+            <button
+              onClick={handleStop}
+              className="flex-1 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg shadow-sm flex items-center justify-center gap-0.5 active:scale-95 transition-all"
+            >
+              <Square className="w-2.5 h-2.5 fill-white" />
+              <span>Exit</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`h-[88px] bg-white/95 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-slate-200/90 flex flex-col justify-between select-none ${className}`}>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-black text-slate-900 tracking-tight">Inside {busNumber}?</span>
+          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+            Broadcaster
+          </span>
+        </div>
+        <p className="text-[10px] text-slate-500 leading-tight">
+          Locate & broadcast phone GPS
+        </p>
+        <button
+          onClick={handleStart}
+          className="w-full mt-0.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-1 border border-emerald-500"
+        >
+          <Navigation className="w-3 h-3 fill-white" />
+          <span>I'm Inside Bus</span>
+        </button>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // FULL VIEW: ACTIVE LIVE TRACKING
   // -------------------------------------------------------------
   if (trackerState.isTracking) {
     return (
@@ -231,7 +309,7 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
   }
 
   // -------------------------------------------------------------
-  // VIEW 2: IDLE STATE (User is not inside the bus yet)
+  // FULL VIEW: IDLE STATE
   // -------------------------------------------------------------
   return (
     <div className={`w-full bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200/90 p-3 transition-all duration-300 ${className}`}>

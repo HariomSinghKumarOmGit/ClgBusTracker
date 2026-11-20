@@ -56,6 +56,7 @@ class BackgroundTrackerService {
   private simIndex: number = 0;
   private routePolyline: [number, number][] = [];
   private lastCoord: { lat: number; lng: number; time: number } | null = null;
+  private notificationRequested: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -124,10 +125,8 @@ class BackgroundTrackerService {
     // 2. Start Background Keep-Alive Audio (prevents OS from killing background JS / GPS in sleep)
     this.startBackgroundKeepAlive();
 
-    // 3. Request Notification for background indicator
-    this.requestNotificationPermission();
-
-    // 4. Start either Real GPS or Simulation
+    // 3. START REAL GPS FIRST!
+    // Location permission must be prompted and granted BEFORE requesting notification permission
     if (this.state.mode === 'real') {
       const ok = this.startRealGps();
       if (!ok) {
@@ -161,6 +160,7 @@ class BackgroundTrackerService {
     this.state.currentLocation = null;
     this.state.startedAt = null;
     this.lastCoord = null;
+    this.notificationRequested = false;
     this.notify();
   }
 
@@ -187,6 +187,15 @@ class BackgroundTrackerService {
     this.watchId = navigator.geolocation.watchPosition(
       (pos) => {
         this.state.gpsPermissionStatus = 'granted';
+
+        // Location permission is GRANTED! Now, and only now, request notification permission
+        if (!this.notificationRequested) {
+          this.notificationRequested = true;
+          setTimeout(() => {
+            this.requestNotificationPermission();
+          }, 800);
+        }
+
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         const accuracy = Math.round(pos.coords.accuracy || 5);

@@ -1,9 +1,9 @@
 // client/src/components/Home/HomeView.tsx
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { MapContainer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Bus, BusRoute, RouteStop } from '../../types';
-import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createUserPinIcon } from '../Map/CustomMarkers';
+import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createUserPinIcon, createAccuratePersonMarkerIcon } from '../Map/CustomMarkers';
 import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2, MapPin } from 'lucide-react';
 import { GoogleMapTileLayer, GoogleMapZoomButtons, GoogleMapLayerSelector, LiveTrafficBadge } from '../Map/MapControls';
 import { MapTheme, DEFAULT_MAP_THEME } from '../Map/mapConfig';
@@ -22,11 +22,13 @@ interface HomeViewProps {
 
 function MapViewController({
   busCoord,
+  personCoord,
   recenterTrigger,
   fitRouteTrigger,
   routePolyline
 }: {
   busCoord: [number, number] | null;
+  personCoord: [number, number] | null;
   recenterTrigger: number;
   fitRouteTrigger: number;
   routePolyline: [number, number][];
@@ -35,10 +37,13 @@ function MapViewController({
   const initialFit = useRef(false);
 
   useEffect(() => {
-    if (recenterTrigger > 0 && busCoord) {
-      map.flyTo(busCoord, 16, { animate: true, duration: 1.2 });
+    if (recenterTrigger > 0) {
+      const target = personCoord || busCoord;
+      if (target) {
+        map.flyTo(target, 16, { animate: true, duration: 1.2 });
+      }
     }
-  }, [recenterTrigger, busCoord, map]);
+  }, [recenterTrigger, busCoord, personCoord, map]);
 
   useEffect(() => {
     if (fitRouteTrigger > 0 && routePolyline.length > 0) {
@@ -89,6 +94,44 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const userLocation: [number, number] = [28.5204, 77.2014];
   const userStopLocation: [number, number] = [28.5204, 77.2014];
+
+  // Real Person GPS Location state
+  const [personLocation, setPersonLocation] = useState<[number, number] | null>(null);
+  const [personAccuracy, setPersonAccuracy] = useState<number | null>(null);
+
+  // Watch real person GPS accurately from phone
+  useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+
+    let initialCenter = false;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const acc = Math.round(pos.coords.accuracy || 10);
+        setPersonLocation([lat, lng]);
+        setPersonAccuracy(acc);
+
+        if (!initialCenter) {
+          initialCenter = true;
+          // Fly map to person's real location on first accurate fix
+          setRecenterCount(c => c + 1);
+        }
+      },
+      (err) => {
+        console.log('Person geolocation watch notice:', err.message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 10000
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
 
   const [currentBusCoord, setCurrentBusCoord] = useState<[number, number]>(() => {
     if (bus?.last_known_location) {
@@ -364,6 +407,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
           <MapViewController
             busCoord={currentBusCoord}
+            personCoord={personLocation}
             recenterTrigger={recenterCount}
             fitRouteTrigger={fitRouteCount}
             routePolyline={polylineCoords}
@@ -417,14 +461,45 @@ export const HomeView: React.FC<HomeViewProps> = ({
             }}
           />
 
-          {/* User Starting Point Pin (😎 15th) */}
-          <Marker position={userLocation} icon={createUserPinIcon(userEmoji)}>
-            <Popup closeButton={false}>
-              <div className="text-center font-bold text-xs p-1">
-                Your Current Spot ({userStopName})
-              </div>
-            </Popup>
-          </Marker>
+          {/* Person's Real Accurate GPS Accuracy Circle */}
+          {personLocation && personAccuracy && (
+            <Circle
+              center={personLocation}
+              radius={personAccuracy}
+              pathOptions={{
+                color: '#2563eb',
+                fillColor: '#3b82f6',
+                fillOpacity: 0.16,
+                weight: 1.5,
+                dashArray: '3, 6'
+              }}
+            />
+          )}
+
+          {/* Accurate Person GPS Location Marker */}
+          {personLocation ? (
+            <Marker position={personLocation} icon={createAccuratePersonMarkerIcon(userEmoji)}>
+              <Popup closeButton={false}>
+                <div className="text-center font-bold text-xs p-1 min-w-[150px]">
+                  <p className="text-blue-700">📍 Your Real Location</p>
+                  <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+                    GPS Accuracy: ±{personAccuracy}m
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                    {personLocation[0].toFixed(6)}, {personLocation[1].toFixed(6)}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ) : (
+            <Marker position={userLocation} icon={createUserPinIcon(userEmoji)}>
+              <Popup closeButton={false}>
+                <div className="text-center font-bold text-xs p-1">
+                  Your Current Spot ({userStopName})
+                </div>
+              </Popup>
+            </Marker>
+          )}
 
           {/* Route Stop Nodes */}
           {stops.map((stop: RouteStop, index: number) => {
@@ -501,79 +576,60 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <GoogleMapZoomButtons map={mapInstance} className="absolute bottom-28 right-4 z-[450]" />
       </div>
 
-      {/* BOTTOM CONTROLS (Direction, Next Stop in X mins, and Inside Bus Broadcaster) */}
-      <div className="relative z-[500] px-4 pb-3 pt-1 pointer-events-auto flex flex-col gap-2">
+      {/* BOTTOM CONTROLS (Direction Header & Single-Row Dual Tabs) */}
+      <div className="relative z-[500] px-3 pb-3 pt-1 pointer-events-auto flex flex-col gap-1.5">
         
-        {/* Direction Row with Slider Dots & "GO / LIVE" Follow Button */}
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#1e3a8a]"></span>
-              <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-            </div>
-
-            <span className="text-sm font-black text-[#1e3a8a] tracking-tight">
-              {currentDirection}
-            </span>
+        {/* Direction Header (No GO Button) */}
+        <div className="flex items-center gap-2 px-1">
+          <div className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#1e3a8a]"></span>
+            <span className="w-2 h-2 rounded-full bg-slate-300"></span>
           </div>
 
-          <button
-            onClick={handleToggleGo}
-            className={`px-5 py-2 rounded-2xl font-black text-sm tracking-wider transition-all duration-300 shadow-lg active:scale-95 flex items-center justify-center gap-1.5 ${
-              isNavigating 
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30 ring-2 ring-emerald-400' 
-                : 'bg-[#1d4ed8] hover:bg-[#1e40af] text-white shadow-blue-600/30 hover:shadow-2xl'
-            }`}
-          >
-            <span>{isNavigating ? 'FOLLOWING' : 'GO'}</span>
-          </button>
+          <span className="text-xs font-black text-[#1e3a8a] tracking-tight">
+            {currentDirection}
+          </span>
         </div>
 
-        {/* DYNAMIC NEXT STOP & LIVE ETA CARD (Replaces dummy 8/13m cards) */}
-        <div className="bg-white/95 backdrop-blur-md rounded-2xl p-3 shadow-md border border-slate-200/90 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex flex-col items-center justify-center border border-blue-100 shrink-0">
-              <Radio className="w-4 h-4 text-blue-600 animate-pulse" />
-              <span className="text-[9px] font-black text-blue-800 leading-none mt-0.5">NEXT</span>
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Stop {nextStopInfo.stopIndex} of {nextStopInfo.totalStops}
-                </span>
-                {nextStopInfo.isTerminal && (
-                  <span className="text-[9px] bg-blue-100 text-blue-800 px-1 rounded font-bold">Campus Destination</span>
-                )}
-              </div>
-              <h4 className="text-xs font-black text-slate-900 leading-tight">
-                {nextStopInfo.name}
-              </h4>
-              <p className="text-[11px] text-slate-500 font-medium">
-                {nextStopInfo.distKm} km away • {bus?.last_known_location?.speed_kmh ?? 0} km/h • Sched: {nextStopInfo.scheduledTime}
-              </p>
-            </div>
-          </div>
-
-          <div className="text-right flex flex-col items-end shrink-0 pl-2">
-            <div className="flex items-baseline gap-0.5">
-              <span className="text-3xl font-black text-[#1e3a8a] tracking-tight leading-none">
-                {nextStopInfo.etaMinutes}
+        {/* SINGLE ROW: Dual Tabs Side-by-Side (Next Stop Tab + Inside Bus Tab) */}
+        <div className="grid grid-cols-2 gap-2 items-stretch">
+          {/* TAB 1: Next Stop & ETA */}
+          <div className="h-[88px] bg-white/95 backdrop-blur-md rounded-2xl p-2.5 shadow-md border border-slate-200/90 flex flex-col justify-between select-none">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Next Stop
               </span>
-              <span className="text-xs font-bold text-slate-500">min</span>
+              <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-1 rounded border border-blue-100">
+                {nextStopInfo.stopIndex}/{nextStopInfo.totalStops}
+              </span>
             </div>
-            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-100 mt-0.5">
-              ● On Time
-            </span>
-          </div>
-        </div>
 
-        {/* INSIDE BUS LIVE TELEMETRY & CROWDSOURCED TRACKING CONTROLLER */}
-        <InsideBusController
-          busNumber={bus?.number || 'Bus 01'}
-          routeName={route?.name || 'Saket → Delhi Technical Campus'}
-          routePolyline={polylineCoords}
-          onRecenter={() => setRecenterCount(c => c + 1)}
-        />
+            <h4 className="text-xs font-black text-slate-900 leading-tight truncate my-0.5" title={nextStopInfo.name}>
+              {nextStopInfo.name}
+            </h4>
+
+            <div className="flex items-baseline justify-between pt-1 border-t border-slate-100">
+              <span className="text-[10px] text-slate-500 font-medium">
+                {nextStopInfo.distKm} km
+              </span>
+              <div className="flex items-baseline gap-0.5">
+                <span className="text-xl font-black text-[#1e3a8a] tracking-tight leading-none">
+                  {nextStopInfo.etaMinutes}
+                </span>
+                <span className="text-[10px] font-bold text-slate-500">min</span>
+              </div>
+            </div>
+          </div>
+
+          {/* TAB 2: Inside Bus Controller in Compact Mode */}
+          <InsideBusController
+            busNumber={bus?.number || 'Bus 01'}
+            routeName={route?.name || 'Saket → Delhi Technical Campus'}
+            routePolyline={polylineCoords}
+            onRecenter={() => setRecenterCount(c => c + 1)}
+            compact={true}
+          />
+        </div>
       </div>
     </div>
   );

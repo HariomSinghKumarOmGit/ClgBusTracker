@@ -202,6 +202,34 @@ export function createUserPinIcon(emoji = '😎') {
   });
 }
 
+export function createAccuratePersonMarkerIcon(emoji = '😎') {
+  const html = `
+    <div class="relative flex flex-col items-center justify-center select-none" style="width: 44px; height: 44px;">
+      <div class="absolute w-11 h-11 rounded-full bg-blue-500/25 animate-ping"></div>
+      <div class="absolute w-8 h-8 rounded-full bg-blue-500/20 border border-blue-400"></div>
+      <div 
+        class="relative flex items-center justify-center rounded-full bg-white text-sm shadow-xl"
+        style="
+          width: 28px; 
+          height: 28px; 
+          border: 2.5px solid #2563eb;
+          box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
+        "
+      >
+        <span>${emoji}</span>
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'accurate-person-pin',
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    popupAnchor: [0, -22]
+  });
+}
+
 /**
  * Image 2 Viabus Transit Radar Hub Marker
  */
