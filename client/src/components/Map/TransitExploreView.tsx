@@ -262,7 +262,7 @@ export const TransitExploreView: React.FC<TransitExploreViewProps> = ({
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-[calc(100vh-68px)] max-w-md mx-auto overflow-hidden bg-slate-900 flex flex-col font-sans select-none"
+      className="relative w-full h-full max-w-md mx-auto overflow-hidden bg-slate-900 flex flex-col font-sans select-none"
     >
       
       {/* TOP VIABUS HEADER & SEARCH BAR */}

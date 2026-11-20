@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defaultSeedData } from './seedData.js';
 import { calculateRouteGeometry } from './osrm.js';
+import { processTrackLocation } from './trackSnapping.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,33 +68,56 @@ class Database {
     return bus;
   }
 
-  updateBusDirectLocation(busId, { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins }) {
+  updateBusDirectLocation(busId, { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins, out_of_track_count, is_on_track }) {
     let bus = this.getBus(busId);
     if (!bus && this.data.buses.length > 0) {
       bus = this.data.buses[0];
     }
     if (!bus) return null;
 
+    let trip = this.getActiveTrip(bus.id);
+    const routeId = trip ? trip.route_id : (bus.assigned_route_id || 'ROUTE-01');
+    const route = this.getRoute(routeId);
+    const polyline = route?.polyline || [];
+
+    const currentCount = (out_of_track_count !== undefined)
+      ? Number(out_of_track_count)
+      : (bus.out_of_track_count || 0);
+
+    const processed = processTrackLocation({
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+      currentOutOfTrackCount: currentCount,
+      polyline
+    });
+
+    bus.out_of_track_count = processed.outOfTrackCount;
+    bus.is_on_track = processed.isOnTrack;
+
     const timestamp = new Date().toISOString();
     const speed = Number(speed_kmh || 0);
     bus.status = speed > 3 ? 'MOVING' : (bus.status === 'IDLE' ? 'IDLE' : 'STOPPED');
     bus.last_known_location = {
-      latitude: Number(latitude),
-      longitude: Number(longitude),
+      latitude: processed.latitude,
+      longitude: processed.longitude,
+      raw_latitude: processed.rawLatitude,
+      raw_longitude: processed.rawLongitude,
+      is_on_track: processed.isOnTrack,
+      out_of_track_count: processed.outOfTrackCount,
+      distance_to_track_m: processed.distanceToTrackMeters,
       speed_kmh: speed,
-      heading: Number(heading || 0),
+      heading: Number(heading || (processed.isOnTrack && processed.segmentBearing ? processed.segmentBearing : 0)),
       accuracy_meters: Number(accuracy_meters || 5),
       timestamp
     };
 
     // If there's an active trip or assigned route, calculate stops
-    let trip = this.getActiveTrip(bus.id);
-    const routeId = trip ? trip.route_id : (bus.assigned_route_id || 'ROUTE-01');
     const stops = this.getStops(routeId);
 
     if (trip) {
-      trip.latitude = Number(latitude);
-      trip.longitude = Number(longitude);
+      trip.latitude = processed.latitude;
+      trip.longitude = processed.longitude;
+      trip.is_on_track = processed.isOnTrack;
       trip.speed_kmh = speed;
       if (heading !== undefined) trip.heading = Number(heading);
       if (delay_mins !== undefined) trip.delay_mins = Number(delay_mins);
@@ -379,12 +403,33 @@ class Database {
     return trip;
   }
 
-  updateTripLocation(tripId, { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins }) {
+  updateTripLocation(tripId, { latitude, longitude, speed_kmh, heading, accuracy_meters, delay_mins, out_of_track_count }) {
     const trip = this.data.trips.find(t => t.id === tripId);
     if (!trip) return null;
 
-    trip.latitude = latitude;
-    trip.longitude = longitude;
+    const route = this.getRoute(trip.route_id);
+    const polyline = route?.polyline || [];
+    const bus = this.getBus(trip.bus_id);
+
+    const currentCount = (out_of_track_count !== undefined)
+      ? Number(out_of_track_count)
+      : (bus?.out_of_track_count || 0);
+
+    const processed = processTrackLocation({
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+      currentOutOfTrackCount: currentCount,
+      polyline
+    });
+
+    if (bus) {
+      bus.out_of_track_count = processed.outOfTrackCount;
+      bus.is_on_track = processed.isOnTrack;
+    }
+
+    trip.latitude = processed.latitude;
+    trip.longitude = processed.longitude;
+    trip.is_on_track = processed.isOnTrack;
     if (speed_kmh !== undefined) trip.speed_kmh = speed_kmh;
     if (heading !== undefined) trip.heading = heading;
     if (delay_mins !== undefined) trip.delay_mins = delay_mins;
@@ -396,7 +441,7 @@ class Database {
     let minDist = Infinity;
 
     stops.forEach((s, idx) => {
-      const d = Math.hypot(s.latitude - latitude, s.longitude - longitude);
+      const d = Math.hypot(s.latitude - processed.latitude, s.longitude - processed.longitude);
       if (d < minDist) {
         minDist = d;
         nearestIndex = idx;
@@ -417,20 +462,24 @@ class Database {
     // Calculate dynamic ETA to next stop
     const nextStop = stops.find(s => s.id === trip.next_stop_id);
     if (nextStop) {
-      const distToNextKm = Math.hypot(nextStop.latitude - latitude, nextStop.longitude - longitude) * 111;
+      const distToNextKm = Math.hypot(nextStop.latitude - processed.latitude, nextStop.longitude - processed.longitude) * 111;
       const effectiveSpeed = (speed_kmh && speed_kmh > 10) ? speed_kmh : 35; // default 35 km/h urban average
       trip.eta_to_next_stop_mins = Math.max(1, Math.round((distToNextKm / effectiveSpeed) * 60));
     }
 
     // Also update bus state
-    const bus = this.getBus(trip.bus_id);
     if (bus) {
       bus.status = (speed_kmh && speed_kmh > 3) ? 'MOVING' : 'STOPPED';
       bus.last_known_location = {
-        latitude,
-        longitude,
+        latitude: processed.latitude,
+        longitude: processed.longitude,
+        raw_latitude: processed.rawLatitude,
+        raw_longitude: processed.rawLongitude,
+        is_on_track: processed.isOnTrack,
+        out_of_track_count: processed.outOfTrackCount,
+        distance_to_track_m: processed.distanceToTrackMeters,
         speed_kmh: speed_kmh || 0,
-        heading: heading || 0,
+        heading: heading || (processed.isOnTrack && processed.segmentBearing ? processed.segmentBearing : 0),
         accuracy_meters: accuracy_meters || 10,
         timestamp: trip.last_update
       };

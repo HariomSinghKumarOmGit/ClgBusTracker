@@ -132,8 +132,12 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className={`text-[10px] font-black tracking-wide uppercase ${trackerState.isOnTrack ? 'text-emerald-300' : 'text-amber-400'}`}>
-                {trackerState.isOnTrack ? 'ON BUS' : 'OFF ROUTE'}
+              <span className={`text-[10px] font-black tracking-wide uppercase ${trackerState.isOnTrack ? 'text-emerald-300' : (trackerState.consecutiveOffTrackCount >= 3 ? 'text-rose-400' : 'text-amber-300')}`}>
+                {trackerState.isOnTrack 
+                  ? 'ON TRACK' 
+                  : (trackerState.consecutiveOffTrackCount >= 3 
+                      ? 'OFF TRACK (DETOUR)' 
+                      : `OFF TRACK (${trackerState.consecutiveOffTrackCount}/3 • BUS ON TRACK)`)}
               </span>
             </div>
             

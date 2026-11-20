@@ -10,6 +10,7 @@ import { MapTheme, DEFAULT_MAP_THEME } from '../Map/mapConfig';
 import { InsideBusController } from '../Bus/InsideBusController';
 import { backgroundTracker } from '../../services/backgroundTracker';
 import { isPointOnTrack } from '../../utils/geoUtils';
+import { snapToPolyline } from '../../utils/trackSnapping';
 
 interface HomeViewProps {
   route: BusRoute | null;
@@ -135,18 +136,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
         setPersonLocation(realCoord);
         setPersonAccuracy(state.currentLocation.accuracy);
 
-        // Alert user if they moved off route
-        if (!state.isOnTrack && lastTrackState) {
-          lastTrackState = false;
-          showToast(`⚠️ Off Route: Showing your ${state.userEmoji} emoji location instead of bus`);
-        } else if (state.isOnTrack && !lastTrackState) {
-          lastTrackState = true;
-          showToast(`🟢 On Track: You are verified inside ${bus?.number || 'Bus 01'}`);
-        }
-
-        // Only update local bus coordinate if on track
+        // User Rule:
+        // Bus can move out of track ONLY if max locations out of track >= 3.
+        // If less than three (< 3): ignore, keep bus on track (snapped)!
         if (state.isOnTrack) {
+          if (!lastTrackState) {
+            lastTrackState = true;
+            showToast(`🟢 On Track: Verified on route with ${bus?.number || 'Bus 01'}`);
+          }
           setCurrentBusCoord(realCoord);
+        } else if (state.consecutiveOffTrackCount >= 3) {
+          // Qualified: 3 or more locations out of track -> bus moves out of track!
+          if (lastTrackState) {
+            lastTrackState = false;
+            showToast(`⚠️ Off Track: Bus detour confirmed (3+ points out of track)`);
+          }
+          setCurrentBusCoord(realCoord);
+        } else {
+          // Less than 3: ignore deviation, keep bus on track (snapped)!
+          const snapped = snapToPolyline(realCoord[0], realCoord[1], polylineCoords);
+          setCurrentBusCoord(snapped.snappedPoint);
+          if (lastTrackState && state.consecutiveOffTrackCount === 1) {
+            showToast(`📍 Minor deviation (${state.consecutiveOffTrackCount}/3) ignored: keeping bus on track`);
+          }
         }
 
         // Auto fly map to real phone GPS location on first fix
@@ -298,7 +310,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const currentDirection = route?.direction || '➔ Eastbound to Delhi Technical Campus';
 
   return (
-    <div className="relative w-full h-[calc(100vh-68px)] max-w-md mx-auto overflow-hidden bg-slate-100 flex flex-col font-sans select-none">
+    <div className="relative w-full h-full max-w-md mx-auto overflow-hidden bg-slate-100 flex flex-col font-sans select-none">
       
       {/* Toast Notification Alert */}
       {toastMessage && (
@@ -568,7 +580,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </MapContainer>
 
         {/* Floating Modern Google Maps Zoom In / Zoom Out Buttons */}
-        <GoogleMapZoomButtons map={mapInstance} className="absolute bottom-28 right-4 z-[450]" />
+        <GoogleMapZoomButtons map={mapInstance} className="absolute bottom-4 right-3 z-[450]" />
       </div>
 
       {/* BOTTOM CONTROLS (Direction Header & Single-Row Dual Tabs) */}

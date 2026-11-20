@@ -5,16 +5,23 @@
 import { socket } from './socket';
 import { api } from './api';
 import { isPointOnTrack } from '../utils/geoUtils';
+import { snapToPolyline, OFF_TRACK_THRESHOLD_METERS } from '../utils/trackSnapping';
 
 export interface TrackerLocationUpdate {
   latitude: number;
   longitude: number;
+  rawLatitude?: number;
+  rawLongitude?: number;
+  snappedLatitude?: number;
+  snappedLongitude?: number;
   speedKmh: number;
   heading: number;
   accuracy: number;
   timestamp: string;
   isBackground: boolean;
   isOnTrack?: boolean;
+  consecutiveOffTrackCount?: number;
+  isBusOffTrack?: boolean;
 }
 
 export interface TrackerState {
@@ -32,6 +39,8 @@ export interface TrackerState {
   userEmoji: string;
   deviceId: string;
   isOnTrack: boolean;
+  consecutiveOffTrackCount: number;
+  isBusOffTrack: boolean;
 }
 
 type StateListener = (state: TrackerState) => void;
@@ -57,7 +66,9 @@ class BackgroundTrackerService {
           return id;
         })()) 
       : 'DEV-DEFAULT',
-    isOnTrack: true
+    isOnTrack: true,
+    consecutiveOffTrackCount: 0,
+    isBusOffTrack: false
   };
 
   private listeners: Set<StateListener> = new Set();
@@ -71,6 +82,7 @@ class BackgroundTrackerService {
   private routePolyline: [number, number][] = [];
   private lastCoord: { lat: number; lng: number; time: number } | null = null;
   private notificationRequested: boolean = false;
+  private consecutiveOffTrackCount: number = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -181,6 +193,10 @@ class BackgroundTrackerService {
     this.state.isTracking = false;
     this.state.currentLocation = null;
     this.state.startedAt = null;
+    this.state.consecutiveOffTrackCount = 0;
+    this.state.isBusOffTrack = false;
+    this.state.isOnTrack = true;
+    this.consecutiveOffTrackCount = 0;
     this.lastCoord = null;
     this.notificationRequested = false;
     this.notify();
@@ -321,9 +337,30 @@ class BackgroundTrackerService {
 
   // Broadcast location over Socket.io and REST fallback
   private handleNewLocation(update: TrackerLocationUpdate) {
-    const onTrack = isPointOnTrack([update.latitude, update.longitude], this.routePolyline, 250);
-    this.state.isOnTrack = onTrack;
+    const { minDistance, snappedPoint } = snapToPolyline(update.latitude, update.longitude, this.routePolyline);
+    const onTrack = minDistance <= OFF_TRACK_THRESHOLD_METERS;
+
+    if (!onTrack) {
+      this.consecutiveOffTrackCount += 1;
+    } else {
+      this.consecutiveOffTrackCount = 0;
+    }
+
+    // Bus can go or move out of track ONLY if max no of location are out of track, min more than 3 (>= 3).
+    // If less than 3: ignore, keep bus on track!
+    const isBusOffTrack = this.consecutiveOffTrackCount >= 3;
+
+    update.rawLatitude = update.latitude;
+    update.rawLongitude = update.longitude;
+    update.snappedLatitude = snappedPoint[0];
+    update.snappedLongitude = snappedPoint[1];
     update.isOnTrack = onTrack;
+    update.consecutiveOffTrackCount = this.consecutiveOffTrackCount;
+    update.isBusOffTrack = isBusOffTrack;
+
+    this.state.isOnTrack = onTrack;
+    this.state.consecutiveOffTrackCount = this.consecutiveOffTrackCount;
+    this.state.isBusOffTrack = isBusOffTrack;
     this.state.currentLocation = update;
     this.state.packetsSent += 1;
     this.notify();
@@ -334,6 +371,8 @@ class BackgroundTrackerService {
       deviceId: this.state.deviceId,
       emoji: this.state.userEmoji,
       isOnTrack: onTrack,
+      consecutiveOffTrackCount: this.consecutiveOffTrackCount,
+      isBusOffTrack,
       latitude: update.latitude,
       longitude: update.longitude,
       speed_kmh: update.speedKmh,
@@ -347,6 +386,8 @@ class BackgroundTrackerService {
       deviceId: this.state.deviceId,
       emoji: this.state.userEmoji,
       isOnTrack: onTrack,
+      consecutiveOffTrackCount: this.consecutiveOffTrackCount,
+      isBusOffTrack,
       latitude: update.latitude,
       longitude: update.longitude,
       speed_kmh: update.speedKmh,

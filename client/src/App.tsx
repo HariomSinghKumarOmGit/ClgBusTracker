@@ -194,7 +194,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="h-[100dvh] w-full max-w-md mx-auto bg-slate-100 flex flex-col font-sans overflow-hidden shadow-2xl relative select-none">
+    <div className="h-full h-[100dvh] w-full max-w-md mx-auto bg-slate-100 flex flex-col font-sans overflow-hidden shadow-2xl relative select-none">
       {/* Global Background Travel Active Floating Bar (Visible when navigating other tabs while inside bus) */}
       {trackerState.isTracking && currentTab !== 'home' && (
         <div className="absolute top-2 left-3 right-3 z-[800] bg-slate-900/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl p-2.5 px-3.5 shadow-2xl text-white flex items-center justify-between animate-fade-in">
@@ -232,7 +232,7 @@ export function App() {
       )}
 
       {/* Dynamic View Display Based on Bottom Navigation Tab */}
-      <main className="flex-1 h-full w-full overflow-hidden relative">
+      <main className="flex-1 min-h-0 w-full overflow-hidden relative flex flex-col">
         {/* Tab 1: Home View (Image 1: Route 01, Destination Delhi Technical Campus, Countdown, Live Navigation) */}
         {currentTab === 'home' && (
           <HomeView

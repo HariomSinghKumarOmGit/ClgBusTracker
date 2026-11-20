@@ -1,7 +1,7 @@
 // client/src/components/Navigation/BottomNavBar.tsx
 import React from 'react';
 import { NavTab } from '../../types';
-import { Home, Map, Users, User, ShieldCheck } from 'lucide-react';
+import { Home, Map, Users, User } from 'lucide-react';
 
 interface BottomNavBarProps {
   currentTab: NavTab;
@@ -16,7 +16,14 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   driverCount = 2,
   isLoggedIn = false
 }) => {
-  const tabs: { id: NavTab; label: string; icon: React.FC<{ className?: string }>; badge?: string | number }[] = [
+  const tabs: {
+    id: NavTab;
+    label: string;
+    shortLabel?: string;
+    icon: React.FC<{ className?: string }>;
+    badge?: number;
+    isBadgeActive?: boolean;
+  }[] = [
     {
       id: 'home',
       label: 'Home',
@@ -25,6 +32,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
     {
       id: 'map',
       label: 'Explore Map',
+      shortLabel: 'Map',
       icon: Map
     },
     {
@@ -37,17 +45,21 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
       id: 'profile',
       label: 'Profile',
       icon: User,
-      badge: isLoggedIn ? 'Active' : undefined
+      isBadgeActive: isLoggedIn
     }
   ];
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-8px_25px_rgba(0,0,0,0.06)] px-3 py-1.5 max-w-md mx-auto"
-      style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
+      className="w-full flex-shrink-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] select-none touch-manipulation"
+      style={{
+        paddingTop: '0.375rem',
+        paddingBottom: 'max(0.5rem, calc(0.35rem + env(safe-area-inset-bottom, 0px)))'
+      }}
+      role="tablist"
       aria-label="Main Navigation"
     >
-      <div className="flex items-center justify-around">
+      <div className="grid grid-cols-4 w-full items-center px-1 max-w-md mx-auto">
         {tabs.map((tab) => {
           const isActive = currentTab === tab.id;
           const Icon = tab.icon;
@@ -55,43 +67,75 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
           return (
             <button
               key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-label={tab.label}
               onClick={() => onTabChange(tab.id)}
-              className={`relative flex flex-col items-center justify-center py-1.5 px-3 rounded-2xl transition-all duration-200 ${
+              className={`group relative flex flex-col items-center justify-center min-h-[50px] py-1 px-0.5 rounded-2xl transition-colors duration-150 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                 isActive
-                  ? 'text-[#1d4ed8] scale-105 font-semibold'
-                  : 'text-slate-500 hover:text-slate-800'
+                  ? 'text-blue-700 font-bold'
+                  : 'text-slate-500 hover:text-slate-800 font-medium'
               }`}
             >
               {/* Active subtle pill background */}
               {isActive && (
-                <span className="absolute inset-0 bg-blue-50 rounded-2xl -z-10 animate-fade-in" />
+                <span className="absolute inset-x-1 inset-y-0.5 bg-blue-50/80 rounded-xl -z-10 animate-fade-in border border-blue-100/60" />
               )}
 
-              <div className="relative">
-                <Icon className={`w-5 h-5 transition-transform ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.8px]'}`} />
+              {/* Icon Container with Badge */}
+              <div className="relative inline-flex items-center justify-center">
+                <Icon
+                  className={`w-5 h-5 transition-transform duration-150 ${
+                    isActive
+                      ? 'stroke-[2.5px] text-blue-700'
+                      : 'stroke-[1.8px] text-slate-500 group-hover:text-slate-800'
+                  }`}
+                />
 
-                {/* Optional Badge */}
-                {tab.badge && (
+                {/* Driver Count Numerical Badge */}
+                {tab.badge !== undefined && (
                   <span
-                    className={`absolute -top-1.5 -right-2.5 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-white leading-tight shadow-xs ${
+                    className={`absolute -top-1 -right-2 min-w-[15px] h-3.5 px-0.5 rounded-full text-[8.5px] font-black flex items-center justify-center border border-white leading-none shadow-xs ${
                       isActive
-                        ? 'bg-[#1d4ed8] text-white'
+                        ? 'bg-blue-600 text-white'
                         : 'bg-slate-300 text-slate-700'
                     }`}
                   >
                     {tab.badge}
                   </span>
                 )}
+
+                {/* Profile Active Status Dot */}
+                {tab.isBadgeActive && (
+                  <span
+                    className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"
+                    title="Account Active"
+                  />
+                )}
               </div>
 
-              <span className={`text-[11px] mt-0.5 tracking-tight ${isActive ? 'font-bold' : 'font-medium'}`}>
-                {tab.label}
+              {/* Responsive Text Label: Shows shortLabel on narrow screens */}
+              <span className="text-[10px] min-[360px]:text-[11px] mt-0.5 tracking-tight truncate max-w-full text-center leading-tight">
+                {tab.shortLabel ? (
+                  <>
+                    <span className="hidden min-[380px]:inline">{tab.label}</span>
+                    <span className="inline min-[380px]:hidden">{tab.shortLabel}</span>
+                  </>
+                ) : (
+                  tab.label
+                )}
               </span>
 
-              {/* Indicator dot */}
-              {isActive && (
-                <span className="w-1.5 h-1.5 bg-[#1d4ed8] rounded-full mt-0.5" />
-              )}
+              {/* Indicator dot: Always occupies space to avoid vertical layout shifts */}
+              <span
+                className={`w-1 h-1 rounded-full mt-0.5 transition-all duration-150 ${
+                  isActive
+                    ? 'bg-blue-600 opacity-100 scale-100'
+                    : 'opacity-0 scale-0 pointer-events-none'
+                }`}
+                aria-hidden="true"
+              />
             </button>
           );
         })}

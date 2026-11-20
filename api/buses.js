@@ -1,5 +1,36 @@
 // api/buses.js
 // Vercel Serverless Function: Buses Telemetry API
+import { transitRoutes } from './routes.js';
+
+function snapToSegment(lat, lng, polyline) {
+  if (!polyline || polyline.length < 2) return { minDistance: 0, snappedPoint: [lat, lng] };
+  let minDistance = Infinity;
+  let snappedPoint = [lat, lng];
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const [lat1, lng1] = polyline[i];
+    const [lat2, lng2] = polyline[i + 1];
+    const midLat = ((lat1 + lat2) / 2) * (Math.PI / 180);
+    const kx = 111320 * Math.cos(midLat);
+    const ky = 111320;
+    const dx = (lng2 - lng1) * kx;
+    const dy = (lat2 - lat1) * ky;
+    const lenSq = dx * dx + dy * dy;
+    let t = 0;
+    if (lenSq > 0) {
+      const px = (lng - lng1) * kx;
+      const py = (lat - lat1) * ky;
+      t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
+    }
+    const nLat = lat1 + t * (lat2 - lat1);
+    const nLng = lng1 + t * (lng2 - lng1);
+    const dist = Math.hypot((lat - nLat) * 111320, (lng - nLng) * kx);
+    if (dist < minDistance) {
+      minDistance = dist;
+      snappedPoint = [nLat, nLng];
+    }
+  }
+  return { minDistance, snappedPoint };
+}
 
 const defaultBuses = [
   {
@@ -72,12 +103,45 @@ export default function handler(req, res) {
     const busId = req.query.id || req.body.busId || req.body.id || 'BUS-01';
     const bus = defaultBuses.find(b => b.id === busId) || defaultBuses[0];
     
-    const { latitude, longitude, speed_kmh, heading, accuracy_meters } = req.body || {};
+    const { latitude, longitude, speed_kmh, heading, accuracy_meters, consecutiveOffTrackCount } = req.body || {};
     if (latitude !== undefined && longitude !== undefined) {
+      const route = transitRoutes.find(r => r.id === bus.assigned_route_id) || transitRoutes[0];
+      const poly = route?.polyline || [];
+      const { minDistance, snappedPoint } = snapToSegment(Number(latitude), Number(longitude), poly);
+      const isOffTrack = minDistance > 50;
+
+      let outOfTrackCount = consecutiveOffTrackCount !== undefined 
+        ? Number(consecutiveOffTrackCount) 
+        : (bus.out_of_track_count || 0);
+
+      if (isOffTrack) {
+        outOfTrackCount += 1;
+      } else {
+        outOfTrackCount = 0;
+      }
+
+      bus.out_of_track_count = outOfTrackCount;
+
+      let finalLat, finalLng;
+      // Rule: Bus can move out of track ONLY if count >= 3. If < 3, keep bus on track!
+      if (outOfTrackCount >= 3) {
+        finalLat = Number(latitude);
+        finalLng = Number(longitude);
+        bus.is_on_track = false;
+      } else {
+        finalLat = snappedPoint[0];
+        finalLng = snappedPoint[1];
+        bus.is_on_track = true;
+      }
+
       bus.status = (speed_kmh && speed_kmh > 3) ? 'MOVING' : 'STOPPED';
       bus.last_known_location = {
-        latitude: Number(latitude),
-        longitude: Number(longitude),
+        latitude: finalLat,
+        longitude: finalLng,
+        raw_latitude: Number(latitude),
+        raw_longitude: Number(longitude),
+        is_on_track: bus.is_on_track,
+        out_of_track_count: outOfTrackCount,
         speed_kmh: Number(speed_kmh || 0),
         heading: Number(heading || 0),
         accuracy_meters: Number(accuracy_meters || 5),

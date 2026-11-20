@@ -138,7 +138,7 @@ export const DriverDetailsView: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-28 pt-4 px-4 max-w-md mx-auto">
+    <div className="min-h-full bg-slate-50 text-slate-900 pb-28 pt-4 px-4 max-w-md mx-auto">
       {/* Header */}
       <header className="mb-4">
         <div className="flex items-center justify-between">
