@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapContainer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Bus, BusRoute, RouteStop } from '../../types';
-import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createUserPinIcon, createAccuratePersonMarkerIcon } from '../Map/CustomMarkers';
+import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createAccuratePersonMarkerIcon } from '../Map/CustomMarkers';
 import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2, MapPin } from 'lucide-react';
 import { GoogleMapTileLayer, GoogleMapZoomButtons, GoogleMapLayerSelector, LiveTrafficBadge } from '../Map/MapControls';
 import { MapTheme, DEFAULT_MAP_THEME } from '../Map/mapConfig';
@@ -92,46 +92,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
   };
 
-  const userLocation: [number, number] = [28.5204, 77.2014];
-  const userStopLocation: [number, number] = [28.5204, 77.2014];
-
-  // Real Person GPS Location state
+  // Person GPS Location state — strictly populated ONLY when "Inside Bus" tracking is active
+  const [isInsideBus, setIsInsideBus] = useState<boolean>(() => backgroundTracker.getState().isTracking);
   const [personLocation, setPersonLocation] = useState<[number, number] | null>(null);
   const [personAccuracy, setPersonAccuracy] = useState<number | null>(null);
-
-  // Watch real person GPS accurately from phone
-  useEffect(() => {
-    if (typeof window === 'undefined' || !navigator.geolocation) return;
-
-    let initialCenter = false;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const acc = Math.round(pos.coords.accuracy || 10);
-        setPersonLocation([lat, lng]);
-        setPersonAccuracy(acc);
-
-        if (!initialCenter) {
-          initialCenter = true;
-          // Fly map to person's real location on first accurate fix
-          setRecenterCount(c => c + 1);
-        }
-      },
-      (err) => {
-        console.log('Person geolocation watch notice:', err.message);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 3000,
-        timeout: 10000
-      }
-    );
-
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-    };
-  }, []);
 
   const [currentBusCoord, setCurrentBusCoord] = useState<[number, number]>(() => {
     if (bus?.last_known_location) {
@@ -140,22 +104,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return [28.5204, 77.2014];
   });
 
-  // Keep bus coordinate in sync with live socket telemetry from any device
+  // Keep bus coordinate in sync with live socket telemetry from any broadcasting device
   useEffect(() => {
     if (bus?.last_known_location) {
       setCurrentBusCoord([bus.last_known_location.latitude, bus.last_known_location.longitude]);
     }
   }, [bus?.last_known_location?.latitude, bus?.last_known_location?.longitude]);
 
-  // Direct sync with local phone GPS from backgroundTracker
+  // Synchronize location strictly with backgroundTracker
+  // If user has NOT clicked "I'm Inside Bus": personLocation is null, zero location is tracked or shown.
+  // When user clicks "I'm Inside Bus": personLocation is populated with real phone GPS and shown on map.
   useEffect(() => {
     let hasCenteredOnce = false;
     const unsub = backgroundTracker.subscribe((state) => {
+      setIsInsideBus(state.isTracking);
       if (state.isTracking && state.currentLocation) {
         const realCoord: [number, number] = [
           state.currentLocation.latitude,
           state.currentLocation.longitude
         ];
+        setPersonLocation(realCoord);
+        setPersonAccuracy(state.currentLocation.accuracy);
         setCurrentBusCoord(realCoord);
 
         // Auto fly map to real phone GPS location on first fix
@@ -163,6 +132,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
           hasCenteredOnce = true;
           setRecenterCount(c => c + 1);
         }
+      } else {
+        // Not inside the bus or tracking stopped: completely clear location
+        setPersonLocation(null);
+        setPersonAccuracy(null);
+        hasCenteredOnce = false;
       }
     });
     return () => unsub();
@@ -297,12 +271,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         [28.5040, 77.2380]
       ];
 
-  const walkingPath: [number, number][] = [
-    userLocation,
-    [28.5286, 77.2056],
-    userStopLocation
-  ];
-
   const currentRouteCode = route?.code || '01';
   const currentDirection = route?.direction || '➔ Eastbound to Delhi Technical Campus';
 
@@ -413,18 +381,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
             routePolyline={polylineCoords}
           />
 
-          {/* Walking Dotted Path */}
-          <Polyline
-            positions={walkingPath}
-            pathOptions={{
-              color: '#334155',
-              weight: 3.5,
-              dashArray: '4, 8',
-              opacity: 0.85,
-              lineCap: 'round'
-            }}
-          />
-
           {/* Route Outer Soft Glowing Aura (Google Maps Style) */}
           <Polyline
             positions={polylineCoords}
@@ -461,44 +417,36 @@ export const HomeView: React.FC<HomeViewProps> = ({
             }}
           />
 
-          {/* Person's Real Accurate GPS Accuracy Circle */}
-          {personLocation && personAccuracy && (
-            <Circle
-              center={personLocation}
-              radius={personAccuracy}
-              pathOptions={{
-                color: '#2563eb',
-                fillColor: '#3b82f6',
-                fillOpacity: 0.16,
-                weight: 1.5,
-                dashArray: '3, 6'
-              }}
-            />
-          )}
-
-          {/* Accurate Person GPS Location Marker */}
-          {personLocation ? (
-            <Marker position={personLocation} icon={createAccuratePersonMarkerIcon(userEmoji)}>
-              <Popup closeButton={false}>
-                <div className="text-center font-bold text-xs p-1 min-w-[150px]">
-                  <p className="text-blue-700">📍 Your Real Location</p>
-                  <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
-                    GPS Accuracy: ±{personAccuracy}m
-                  </p>
-                  <p className="text-[9px] text-slate-400 font-mono mt-0.5">
-                    {personLocation[0].toFixed(6)}, {personLocation[1].toFixed(6)}
-                  </p>
-                </div>
-              </Popup>
-            </Marker>
-          ) : (
-            <Marker position={userLocation} icon={createUserPinIcon(userEmoji)}>
-              <Popup closeButton={false}>
-                <div className="text-center font-bold text-xs p-1">
-                  Your Current Spot ({userStopName})
-                </div>
-              </Popup>
-            </Marker>
+          {/* Person's Real Accurate GPS Location Marker & Halo — ONLY shown when user taps "I'm Inside Bus" */}
+          {isInsideBus && personLocation && (
+            <>
+              {personAccuracy && (
+                <Circle
+                  center={personLocation}
+                  radius={personAccuracy}
+                  pathOptions={{
+                    color: '#2563eb',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.16,
+                    weight: 1.5,
+                    dashArray: '3, 6'
+                  }}
+                />
+              )}
+              <Marker position={personLocation} icon={createAccuratePersonMarkerIcon(userEmoji)}>
+                <Popup closeButton={false}>
+                  <div className="text-center font-bold text-xs p-1 min-w-[150px]">
+                    <p className="text-blue-700">📍 Your Real Location (Inside Bus)</p>
+                    <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+                      GPS Accuracy: ±{personAccuracy}m
+                    </p>
+                    <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                      {personLocation[0].toFixed(6)}, {personLocation[1].toFixed(6)}
+                    </p>
+                  </div>
+                </Popup>
+              </Marker>
+            </>
           )}
 
           {/* Route Stop Nodes */}
