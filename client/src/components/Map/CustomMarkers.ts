@@ -265,10 +265,58 @@ export function createAccuratePersonMarkerIcon(emoji = '😎') {
 
   return L.divIcon({
     html,
-    className: 'accurate-person-pin',
+    className: 'accurate-person-marker',
     iconSize: [44, 44],
     iconAnchor: [22, 22],
     popupAnchor: [0, -22]
+  });
+}
+
+/**
+ * Rider Marker Icon showing Avatar Emoji + Particular Device Code Pill
+ */
+export function createRiderMarkerIcon(emoji = '😎', deviceCode = 'DEV-01', isSelf = false) {
+  const borderColor = isSelf ? '#2563eb' : '#059669';
+  const badgeBg = isSelf ? '#1e40af' : '#065f46';
+  const shortCode = deviceCode.replace('DEV-', '');
+
+  const html = `
+    <div class="relative flex flex-col items-center select-none" style="width: 52px; height: 50px;">
+      <!-- Subtle Pulse -->
+      <div class="absolute top-1 w-8 h-8 rounded-full ${isSelf ? 'bg-blue-400/30' : 'bg-emerald-400/30'} animate-ping"></div>
+
+      <!-- Main Emoji Circle -->
+      <div 
+        class="relative flex items-center justify-center rounded-full bg-white text-base shadow-lg"
+        style="
+          width: 32px; 
+          height: 32px; 
+          border: 2.5px solid ${borderColor};
+          box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+        "
+      >
+        <span>${emoji}</span>
+      </div>
+
+      <!-- Device Code Pill -->
+      <div 
+        class="mt-0.5 px-1.5 py-0.2 rounded-full text-[8.5px] font-mono font-black text-white shadow-sm tracking-tight whitespace-nowrap"
+        style="
+          background-color: ${badgeBg};
+          border: 1px solid rgba(255,255,255,0.7);
+        "
+      >
+        ${shortCode}
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'rider-device-marker',
+    iconSize: [52, 50],
+    iconAnchor: [26, 25],
+    popupAnchor: [0, -25]
   });
 }
 

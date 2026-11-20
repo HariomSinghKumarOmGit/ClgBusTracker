@@ -1,6 +1,7 @@
 // client/src/components/Profile/ProfileView.tsx
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../../types';
+import { getOrCreateDeviceProfile, createNewDeviceProfile, saveDeviceProfile } from '../../utils/deviceProfile';
 import { 
   User, 
   LogIn, 
@@ -16,39 +17,17 @@ import {
   RefreshCw,
   Sparkles,
   Lock,
-  ChevronRight
+  ChevronRight,
+  Copy
 } from 'lucide-react';
 
 interface ProfileViewProps {
   onProfileUpdate?: (profile: UserProfile) => void;
+  onSwitchDeviceProfile?: () => void;
 }
 
-const DEFAULT_PROFILE: UserProfile = {
-  id: 'usr_local_01',
-  name: 'Alex Rivera',
-  phone: '+1 (555) 382-9102',
-  email: 'alex.rivera@example.com',
-  avatar_emoji: '😎',
-  role: 'commuter',
-  is_logged_in: true,
-  preferred_stop_id: 'STOP-01',
-  preferred_stop_name: '15th',
-  home_stop: 'Saket Metro',
-  work_campus_stop: 'Delhi Technical Campus',
-  saved_routes: ['38', '21', '140'],
-  notifications_enabled: true,
-  chime_alerts: true,
-  vibration_alerts: true
-};
-
-export const ProfileView: React.FC<ProfileViewProps> = ({ onProfileUpdate }) => {
-  const [profile, setProfile] = useState<UserProfile>(() => {
-    try {
-      const saved = localStorage.getItem('bustracker_user_profile');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return DEFAULT_PROFILE;
-  });
+export const ProfileView: React.FC<ProfileViewProps> = ({ onProfileUpdate, onSwitchDeviceProfile }) => {
+  const [profile, setProfile] = useState<UserProfile>(() => getOrCreateDeviceProfile());
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(profile.name);
@@ -60,10 +39,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onProfileUpdate }) => 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('bustracker_user_profile', JSON.stringify(profile));
-      if (onProfileUpdate) onProfileUpdate(profile);
-    } catch (e) {}
+    saveDeviceProfile(profile);
+    if (onProfileUpdate) onProfileUpdate(profile);
   }, [profile, onProfileUpdate]);
 
   const showToast = (msg: string) => {
@@ -239,6 +216,55 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onProfileUpdate }) => 
                 <span className="text-sm">{profile.avatar_emoji}</span>
                 <span>Active Top Stop: <strong>{profile.preferred_stop_name}</strong></span>
               </div>
+
+              {/* Particular Device Code Card */}
+              <div className="mt-3.5 bg-slate-900 text-white rounded-2xl p-3 border border-slate-800 shadow-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-blue-400" />
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-none">
+                        Device Particular Code
+                      </span>
+                      <span className="font-mono text-sm font-black text-blue-300">
+                        {profile.device_code}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard?.writeText(profile.device_code);
+                        showToast(`Copied ${profile.device_code} to clipboard!`);
+                      }}
+                      className="p-1.5 bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white rounded-lg transition-all active:scale-95"
+                      title="Copy Device Code"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (onSwitchDeviceProfile) {
+                          onSwitchDeviceProfile();
+                        } else {
+                          const fresh = createNewDeviceProfile();
+                          setProfile(fresh);
+                        }
+                        showToast('🎉 New device profile and code generated!');
+                      }}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-black flex items-center gap-1 active:scale-95 transition-all"
+                      title="Create a new random device code & profile"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>New Profile</span>
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                  Each device gets its own particular code. The app tracks telemetry per device and requires <strong>3+ devices within 20m radius</strong> to confirm the bus.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="mt-3 space-y-2.5">
@@ -406,8 +432,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onProfileUpdate }) => 
           onClick={() => {
             if (window.confirm('Reset local preferences to default?')) {
               localStorage.removeItem('bustracker_user_profile');
-              setProfile(DEFAULT_PROFILE);
-              showToast('Preferences restored to default');
+              const fresh = createNewDeviceProfile();
+              setProfile(fresh);
+              showToast('Preferences restored with new device profile');
             }
           }}
           className="text-xs text-slate-400 hover:text-slate-600 inline-flex items-center gap-1 font-semibold"

@@ -1,12 +1,13 @@
 // client/src/components/Map/TransitExploreView.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MapContainer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Bus, BusRoute, RouteStop, TransitStopHub } from '../../types';
 import { 
   createViabusBusMarkerIcon, 
   createViabusRadarHubIcon, 
-  createTransitRouteStopMarkerIcon 
+  createTransitRouteStopMarkerIcon,
+  createRiderMarkerIcon
 } from './CustomMarkers';
 import { 
   Search, 
@@ -440,25 +441,58 @@ export const TransitExploreView: React.FC<TransitExploreViewProps> = ({
             </Marker>
           ))}
 
-          {/* Live Multi-Buses on Map */}
-          {buses.map(b => (
-            <Marker
-              key={b.id}
-              position={[b.last_known_location.latitude, b.last_known_location.longitude]}
-              icon={createViabusBusMarkerIcon(
-                b.id === 'BUS-38' ? '38' : (b.id === 'BUS-21' ? '21' : '01'),
-                b.status === 'MOVING'
-              )}
-            >
-              <Popup closeButton={false}>
-                <div className="p-1 font-bold text-xs text-center">
-                  Route 01 • DL 1P B 3838
-                  <div className="text-[10px] text-emerald-600 font-extrabold mt-0.5">
-                    ● Currently Stopped @ Kalindi Kunj
+          {/* Live Multi-Buses on Map — Bus 01 shown ONLY when confirmed by 3+ people in 20m */}
+          {buses.map(b => {
+            const isConfirmed = b.id === 'BUS-01' ? Boolean(b.is_bus_confirmed) : b.status === 'MOVING';
+            if (!isConfirmed) return null; // "else don't shown that"
+
+            return (
+              <Marker
+                key={b.id}
+                position={[b.last_known_location.latitude, b.last_known_location.longitude]}
+                icon={createViabusBusMarkerIcon(
+                  b.id === 'BUS-38' ? '38' : (b.id === 'BUS-21' ? '21' : '01'),
+                  b.status === 'MOVING'
+                )}
+              >
+                <Popup closeButton={false}>
+                  <div className="p-1 font-bold text-xs text-center">
+                    {b.number} • {b.plate_number}
+                    <div className="text-[10px] text-emerald-600 font-extrabold mt-0.5">
+                      ● {b.status === 'MOVING' ? 'Moving Live' : 'Stopped'} • {b.passenger_count || 3} in bus
+                    </div>
                   </div>
-                </div>
-              </Popup>
-            </Marker>
+                </Popup>
+              </Marker>
+            );
+          })}
+
+          {/* Active Riders on Map when bus is not yet confirmed */}
+          {buses.find(b => b.id === 'BUS-01')?.active_reporters?.map(r => (
+            <React.Fragment key={r.device_id}>
+              <Circle
+                center={[r.latitude, r.longitude]}
+                radius={20}
+                pathOptions={{
+                  color: '#2563eb',
+                  fillColor: '#3b82f6',
+                  fillOpacity: 0.15,
+                  weight: 1.5,
+                  dashArray: '3, 6'
+                }}
+              />
+              <Marker
+                position={[r.latitude, r.longitude]}
+                icon={createRiderMarkerIcon(r.emoji || '😎', r.device_id, false)}
+              >
+                <Popup closeButton={false}>
+                  <div className="p-1 text-center font-bold text-xs">
+                    <p className="text-slate-800">{r.emoji} {r.device_id}</p>
+                    <p className="text-[10px] text-amber-600 font-bold">Waiting for 3+ riders in 20m</p>
+                  </div>
+                </Popup>
+              </Marker>
+            </React.Fragment>
           ))}
         </MapContainer>
       </div>

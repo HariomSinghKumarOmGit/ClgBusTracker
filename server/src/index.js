@@ -44,9 +44,17 @@ function getLocalNetworkIP() {
 
 const localIP = getLocalNetworkIP();
 
-// --- MULTI-DEVICE PASSENGER REPORTER TRACKING & CONSENSUS ENGINE ---
+// --- MULTI-DEVICE PASSENGER REPORTER TRACKING & 20-METER CONSENSUS ENGINE ---
 // Maps busId -> Map<deviceId, reporterData>
 const busReporters = new Map();
+
+// STRICT CORE USER REQUIREMENT:
+// 1. Bus detection radius: EXACTLY 20 METRES.
+// 2. Consensus count: THREE OR MORE (>= 3) people within 20m radius.
+// 3. If < 3 people within 20m: THEY ARE NOT IN BUS (even if they checked "Inside Bus").
+// 4. Do NOT show the bus emoji unless >= 3 people are inside 20m radius!
+const BUS_CONSENSUS_RADIUS_METERS = 20;
+const MIN_BUS_PASSENGERS = 3;
 
 function haversineDistMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -61,12 +69,33 @@ function haversineDistMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Find largest cluster of active reporters where all are within 20m radius of an anchor reporter
+function find20MeterCluster(reporters) {
+  if (!reporters || reporters.length === 0) return [];
+  let bestCluster = [];
+  for (let i = 0; i < reporters.length; i++) {
+    const anchor = reporters[i];
+    const inRadius = [anchor];
+    for (let j = 0; j < reporters.length; j++) {
+      if (i !== j) {
+        const dist = haversineDistMeters(anchor.latitude, anchor.longitude, reporters[j].latitude, reporters[j].longitude);
+        if (dist <= BUS_CONSENSUS_RADIUS_METERS) {
+          inRadius.push(reporters[j]);
+        }
+      }
+    }
+    if (inRadius.length > bestCluster.length) {
+      bestCluster = inRadius;
+    }
+  }
+  return bestCluster;
+}
+
 function processReporterLocation(busId, data) {
   const {
     deviceId = 'DEV-UNKNOWN',
     emoji = '😎',
-    isOnTrack: clientReportedOnTrack,
-    consecutiveOffTrackCount: clientConsecutiveCount,
+    name,
     latitude,
     longitude,
     speed_kmh = 0,
@@ -82,10 +111,10 @@ function processReporterLocation(busId, data) {
   }
   const reporters = busReporters.get(busId);
   const now = Date.now();
-  const prevReporter = reporters.get(deviceId);
 
   // Retrieve route polyline for the bus
   const busRecord = db.getBus(busId);
+  if (!busRecord) return null;
   const routeId = busRecord?.assigned_route_id || 'ROUTE-01';
   const route = db.getRoute(routeId);
   const polyline = route?.polyline || [];
@@ -94,23 +123,12 @@ function processReporterLocation(busId, data) {
   const { minDistance, snappedPoint, segmentBearing } = snapToPolyline(Number(latitude), Number(longitude), polyline);
   const physicallyOnTrack = minDistance <= OFF_TRACK_THRESHOLD_METERS; // 50m road corridor
 
-  // Calculate consecutive off-track count for this device
-  let devConsecutiveOffTrack = (clientConsecutiveCount !== undefined && clientConsecutiveCount > 0)
-    ? Number(clientConsecutiveCount)
-    : (prevReporter ? prevReporter.consecutiveOffTrackCount || 0 : 0);
-
-  if (!physicallyOnTrack) {
-    devConsecutiveOffTrack += 1;
-  } else {
-    devConsecutiveOffTrack = 0;
-  }
-
-  // Save current reporter state
+  // Save/update this device's reporter state
   reporters.set(deviceId, {
     deviceId,
     emoji: emoji || '😎',
+    name: name || deviceId,
     isOnTrack: physicallyOnTrack,
-    consecutiveOffTrackCount: devConsecutiveOffTrack,
     latitude: Number(latitude),
     longitude: Number(longitude),
     snappedLat: snappedPoint[0],
@@ -130,125 +148,102 @@ function processReporterLocation(busId, data) {
   }
 
   const allActive = Array.from(reporters.values());
-  const onTrackReporters = allActive.filter(r => r.isOnTrack);
-  const offTrackReporters = allActive.filter(r => !r.isOnTrack);
 
-  // Cluster reporters to find group consensus within 350m
-  function getLargestCluster(reps) {
-    if (!reps || reps.length === 0) return [];
-    if (reps.length === 1) return [reps[0]];
-    let best = [reps[0]];
-    for (let i = 0; i < reps.length; i++) {
-      const orig = reps[i];
-      const cluster = [orig];
-      for (let j = 0; j < reps.length; j++) {
-        if (i !== j) {
-          const dist = haversineDistMeters(orig.latitude, orig.longitude, reps[j].latitude, reps[j].longitude);
-          if (dist <= 350) {
-            cluster.push(reps[j]);
-          }
-        }
-      }
-      if (cluster.length > best.length) {
-        best = cluster;
-      }
-    }
-    return best;
-  }
-
-  const onTrackCluster = getLargestCluster(onTrackReporters);
-  const offTrackCluster = getLargestCluster(offTrackReporters);
-
-  // Max consecutive off-track count recorded among all active reporters
-  const maxConsecutiveOffTrack = allActive.length > 0 
-    ? Math.max(...allActive.map(r => r.consecutiveOffTrackCount || 0))
-    : 0;
-
-  // USER CORE REQUIREMENT:
-  // "bus can goo or move out of track only if max no of location orhte ther eare out of track, min more then 3,
-  //  adn also , if less then three ignore keep bus on track"
-  //
-  // 1. Bus can go/move out of track ONLY IF:
-  //    - Maximum number of locations out of track is minimum more than 3 / at least 3 (>= 3)
-  //      (i.e. cluster of >= 3 out-of-track reporters in agreement, OR single/consecutive off-track reports >= 3)
-  // 2. If less than 3:
-  //    - IGNORE off-track deviation, KEEP BUS ON TRACK (snapped)!
-  const offTrackCount = offTrackCluster.length;
-  const onTrackCount = onTrackCluster.length;
-
-  const canMoveOutOfTrack = 
-    (offTrackCount >= 3 && offTrackCount > onTrackCount) || 
-    (onTrackCount === 0 && (offTrackCount >= 3 || maxConsecutiveOffTrack >= 3));
+  // Compute 20-metre radius cluster among all active reporters
+  const busCluster = find20MeterCluster(allActive);
+  const isBusConfirmed = busCluster.length >= MIN_BUS_PASSENGERS;
 
   let targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy;
   let passengerEmojis = [];
-  let passengerCount = 0;
+  let passengerCount = busCluster.length;
   let busIsOnTrack = true;
 
-  if (canMoveOutOfTrack) {
-    // QUALIFIED: Max locations are out of track, and minimum count is >= 3!
-    // Bus moves out of track to the off-track consensus cluster
-    busIsOnTrack = false;
-    const cluster = offTrackCluster.length > 0 ? offTrackCluster : allActive;
-    targetLat = cluster.reduce((s, r) => s + r.latitude, 0) / cluster.length;
-    targetLng = cluster.reduce((s, r) => s + r.longitude, 0) / cluster.length;
-    targetSpeed = Math.round(cluster.reduce((s, r) => s + r.speed_kmh, 0) / cluster.length);
-    targetHeading = cluster[0].heading;
-    targetAccuracy = Math.round(cluster.reduce((s, r) => s + r.accuracy_meters, 0) / cluster.length);
-    passengerCount = cluster.length;
-    passengerEmojis = cluster.map(r => r.emoji || '😎');
-  } else {
-    // LESS THAN 3 LOCATIONS OUT OF TRACK (OR ON-TRACK REPORTERS DOMINATE):
-    // "if less then three ignore keep bus on track" -> IGNORE AND KEEP BUS ON TRACK!
-    busIsOnTrack = true;
+  if (isBusConfirmed) {
+    // 3 OR MORE PEOPLE WITHIN 20 METRES: THEY ARE IN THE BUS!
+    // Compute consensus location from the 20m cluster
+    const clusterLat = busCluster.reduce((s, r) => s + r.latitude, 0) / busCluster.length;
+    const clusterLng = busCluster.reduce((s, r) => s + r.longitude, 0) / busCluster.length;
+    targetSpeed = Math.round(busCluster.reduce((s, r) => s + r.speed_kmh, 0) / busCluster.length);
+    targetAccuracy = Math.round(busCluster.reduce((s, r) => s + r.accuracy_meters, 0) / busCluster.length);
+    targetHeading = busCluster[0].heading;
+    passengerCount = busCluster.length;
+    passengerEmojis = busCluster.map(r => r.emoji || '😎');
 
-    if (onTrackCount > 0) {
-      // Position bus at the cluster of verified on-track reporters
-      targetLat = onTrackCluster.reduce((s, r) => s + r.latitude, 0) / onTrackCluster.length;
-      targetLng = onTrackCluster.reduce((s, r) => s + r.longitude, 0) / onTrackCluster.length;
-      targetSpeed = Math.round(onTrackCluster.reduce((s, r) => s + r.speed_kmh, 0) / onTrackCluster.length);
-      targetHeading = onTrackCluster[0].heading;
-      targetAccuracy = Math.round(onTrackCluster.reduce((s, r) => s + r.accuracy_meters, 0) / onTrackCluster.length);
-      passengerCount = onTrackCluster.length;
-      passengerEmojis = onTrackCluster.map(r => r.emoji || '😎');
+    // Check if the bus cluster is on or off track
+    const { minDistance: busDist, snappedPoint: busSnapped, segmentBearing: busBearing } = snapToPolyline(clusterLat, clusterLng, polyline);
+    if (busDist <= OFF_TRACK_THRESHOLD_METERS) {
+      // Near corridor -> Keep bus cleanly snapped to road
+      targetLat = busSnapped[0];
+      targetLng = busSnapped[1];
+      targetHeading = busBearing || targetHeading;
+      busIsOnTrack = true;
     } else {
-      // Off-track count is less than 3 (< 3):
-      // Snap to polyline to strictly keep the bus on track!
-      targetLat = snappedPoint[0];
-      targetLng = snappedPoint[1];
-      targetSpeed = Number(speed_kmh || 0);
-      targetHeading = Number(heading || segmentBearing || 0);
-      targetAccuracy = Number(accuracy_meters || 5);
-      passengerCount = allActive.length;
-      passengerEmojis = allActive.map(r => r.emoji || '😎');
+      // Legitimate detour with 3+ passengers -> Move off track
+      targetLat = clusterLat;
+      targetLng = clusterLng;
+      busIsOnTrack = false;
     }
+
+    // Update bus in database as active & verified
+    db.updateBusDirectLocation(busId, {
+      latitude: targetLat,
+      longitude: targetLng,
+      speed_kmh: targetSpeed,
+      heading: targetHeading,
+      accuracy_meters: targetAccuracy,
+      delay_mins,
+      out_of_track_count: busIsOnTrack ? 0 : 3,
+      is_on_track: busIsOnTrack
+    });
+
+    busRecord.is_bus_confirmed = true;
+    busRecord.status = targetSpeed > 3 ? 'MOVING' : 'STOPPED';
+  } else {
+    // FEWER THAN 3 PEOPLE IN 20 METRE RADIUS:
+    // "if there are less than three people in 20 metre radius then they are not in bus,
+    // even though they have checked that they are in bus... else don't shown that"
+    // Bus is unconfirmed / hidden!
+    busRecord.is_bus_confirmed = false;
+    busRecord.status = 'IDLE';
+
+    targetLat = Number(latitude);
+    targetLng = Number(longitude);
+    targetSpeed = Number(speed_kmh || 0);
+    targetHeading = Number(heading || 0);
+    targetAccuracy = Number(accuracy_meters || 5);
+    passengerCount = busCluster.length;
+    passengerEmojis = busCluster.map(r => r.emoji || '😎');
   }
 
-  // Off-track passengers shown as individual emoji pins when the bus itself is kept on track
-  const offTrackReportersList = busIsOnTrack
-    ? offTrackReporters.map(r => ({
-        device_id: r.deviceId,
-        emoji: r.emoji,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        accuracy_meters: r.accuracy_meters
-      }))
-    : [];
+  busRecord.passenger_count = passengerCount;
+  busRecord.passenger_emojis = passengerEmojis;
+  db.persist();
 
-  // Update bus location in db (passing out_of_track_count and is_on_track)
-  const result = db.updateBusDirectLocation(busId, {
-    latitude: targetLat,
-    longitude: targetLng,
-    speed_kmh: targetSpeed,
-    heading: targetHeading,
-    accuracy_meters: targetAccuracy,
-    delay_mins,
-    out_of_track_count: busIsOnTrack ? 0 : Math.max(offTrackCount, maxConsecutiveOffTrack),
-    is_on_track: busIsOnTrack
-  });
+  // Prepare full list of active reporters for map visualization
+  const activeReportersList = allActive.map(r => ({
+    device_id: r.deviceId,
+    emoji: r.emoji || '😎',
+    name: r.name || r.deviceId,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    speed_kmh: r.speed_kmh || 0,
+    accuracy_meters: r.accuracy_meters || 5,
+    in_bus: isBusConfirmed && busCluster.some(c => c.deviceId === r.deviceId)
+  }));
+
+  const offTrackReportersList = allActive
+    .filter(r => !r.isOnTrack)
+    .map(r => ({
+      device_id: r.deviceId,
+      emoji: r.emoji,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      accuracy_meters: r.accuracy_meters
+    }));
 
   return {
-    result,
+    result: { bus: busRecord, trip: db.getActiveTrip(busId) },
+    isBusConfirmed,
     targetLat,
     targetLng,
     targetSpeed,
@@ -256,9 +251,11 @@ function processReporterLocation(busId, data) {
     targetAccuracy,
     passengerCount,
     passengerEmojis,
+    busClusterCount: busCluster.length,
+    totalActiveReporters: allActive.length,
+    activeReporters: activeReportersList,
     offTrackReporters: offTrackReportersList,
-    isOnTrack: busIsOnTrack,
-    outOfTrackCount: busIsOnTrack ? 0 : Math.max(offTrackCount, maxConsecutiveOffTrack)
+    isOnTrack: busIsOnTrack
   };
 }
 
@@ -291,13 +288,54 @@ app.get('/api/network-info', async (req, res) => {
 
 // Buses
 app.get('/api/buses', (req, res) => {
-  res.json(db.getBuses());
+  const buses = db.getBuses().map(b => {
+    const reps = busReporters.get(b.id);
+    const allActive = reps ? Array.from(reps.values()) : [];
+    const busCluster = find20MeterCluster(allActive);
+    const isBusConfirmed = busCluster.length >= MIN_BUS_PASSENGERS;
+    return {
+      ...b,
+      is_bus_confirmed: isBusConfirmed,
+      passenger_count: busCluster.length,
+      passenger_emojis: busCluster.map(r => r.emoji || '😎'),
+      active_reporters: allActive.map(r => ({
+        device_id: r.deviceId,
+        emoji: r.emoji,
+        name: r.name,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        speed_kmh: r.speed_kmh || 0,
+        accuracy_meters: r.accuracy_meters || 5,
+        in_bus: isBusConfirmed && busCluster.some(c => c.deviceId === r.deviceId)
+      }))
+    };
+  });
+  res.json(buses);
 });
 
 app.get('/api/buses/:id', (req, res) => {
   const bus = db.getBus(req.params.id);
   if (!bus) return res.status(404).json({ error: 'Bus not found' });
-  res.json(bus);
+  const reps = busReporters.get(req.params.id);
+  const allActive = reps ? Array.from(reps.values()) : [];
+  const busCluster = find20MeterCluster(allActive);
+  const isBusConfirmed = busCluster.length >= MIN_BUS_PASSENGERS;
+  res.json({
+    ...bus,
+    is_bus_confirmed: isBusConfirmed,
+    passenger_count: busCluster.length,
+    passenger_emojis: busCluster.map(r => r.emoji || '😎'),
+    active_reporters: allActive.map(r => ({
+      device_id: r.deviceId,
+      emoji: r.emoji,
+      name: r.name,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      speed_kmh: r.speed_kmh || 0,
+      accuracy_meters: r.accuracy_meters || 5,
+      in_bus: isBusConfirmed && busCluster.some(c => c.deviceId === r.deviceId)
+    }))
+  });
 });
 
 // Update bus location (from commuter inside bus or driver)
@@ -312,9 +350,9 @@ app.post('/api/buses/:id/location', (req, res) => {
     return res.status(404).json({ error: 'Bus not found' });
   }
 
-  const { result, targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy, passengerCount, passengerEmojis, offTrackReporters } = processed;
+  const { result, targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy, passengerCount, passengerEmojis, isBusConfirmed, activeReporters, offTrackReporters, isOnTrack } = processed;
 
-  // Real-time broadcast to all connected passengers and maps with multi-device consensus & emoji dots
+  // Real-time broadcast to all connected passengers and maps with 20m multi-device consensus & emoji dots
   io.emit('bus:location_update', {
     bus_id: result.bus.id,
     trip_id: result.trip?.id || null,
@@ -324,25 +362,68 @@ app.post('/api/buses/:id/location', (req, res) => {
     heading: targetHeading,
     accuracy_meters: targetAccuracy,
     status: result.bus.status,
+    is_bus_confirmed: isBusConfirmed,
+    is_on_track: isOnTrack,
     current_stop_id: result.trip?.current_stop_id || null,
     next_stop_id: result.trip?.next_stop_id || null,
     eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
     passenger_count: passengerCount,
     passenger_emojis: passengerEmojis,
+    active_reporters: activeReporters,
     off_track_passengers: offTrackReporters,
     last_update: result.bus.last_known_location.timestamp
   });
 
-  res.json({ success: true, bus: result.bus, trip: result.trip, passengerCount, passengerEmojis });
+  res.json({
+    success: true,
+    bus: result.bus,
+    trip: result.trip,
+    is_bus_confirmed: isBusConfirmed,
+    passengerCount,
+    passengerEmojis,
+    activeReporters
+  });
 });
 
 // Start/Stop tracking notifications
 app.post('/api/buses/:id/stop-tracking', (req, res) => {
+  const { deviceId } = req.body || {};
+  let reps = null;
+  if (busReporters.has(req.params.id)) {
+    reps = busReporters.get(req.params.id);
+    if (deviceId) {
+      reps.delete(deviceId);
+    }
+  }
   const bus = db.getBus(req.params.id);
   if (bus) {
-    bus.status = 'IDLE';
+    const allActive = reps ? Array.from(reps.values()) : [];
+    const busCluster = find20MeterCluster(allActive);
+    const isBusConfirmed = busCluster.length >= MIN_BUS_PASSENGERS;
+    bus.is_bus_confirmed = isBusConfirmed;
+    bus.passenger_count = busCluster.length;
+    bus.passenger_emojis = busCluster.map(r => r.emoji || '😎');
+    if (!isBusConfirmed) {
+      bus.status = 'IDLE';
+    }
     db.persist();
-    io.emit('bus:status_change', { bus_id: req.params.id, status: 'IDLE' });
+    io.emit('bus:location_update', {
+      bus_id: req.params.id,
+      is_bus_confirmed: isBusConfirmed,
+      passenger_count: busCluster.length,
+      passenger_emojis: busCluster.map(r => r.emoji || '😎'),
+      status: bus.status,
+      active_reporters: allActive.map(r => ({
+        device_id: r.deviceId,
+        emoji: r.emoji,
+        name: r.name,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        in_bus: isBusConfirmed && busCluster.some(c => c.deviceId === r.deviceId)
+      })),
+      last_update: new Date().toISOString()
+    });
+    io.emit('bus:status_change', { bus_id: req.params.id, status: bus.status });
   }
   res.json({ success: true });
 });
@@ -724,7 +805,7 @@ io.on('connection', socket => {
     const processed = processReporterLocation(busId, data);
     if (!processed || !processed.result || !processed.result.bus) return;
 
-    const { result, targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy, passengerCount, passengerEmojis, offTrackReporters, isOnTrack, outOfTrackCount } = processed;
+    const { result, targetLat, targetLng, targetSpeed, targetHeading, targetAccuracy, passengerCount, passengerEmojis, isBusConfirmed, activeReporters, offTrackReporters, isOnTrack } = processed;
 
     io.emit('bus:location_update', {
       bus_id: result.bus.id,
@@ -735,13 +816,14 @@ io.on('connection', socket => {
       heading: targetHeading,
       accuracy_meters: targetAccuracy,
       status: result.bus.status || 'MOVING',
+      is_bus_confirmed: isBusConfirmed,
       is_on_track: isOnTrack,
-      out_of_track_count: outOfTrackCount,
       current_stop_id: result.trip?.current_stop_id || null,
       next_stop_id: result.trip?.next_stop_id || null,
       eta_to_next_stop_mins: result.trip?.eta_to_next_stop_mins || 2,
       passenger_count: passengerCount,
       passenger_emojis: passengerEmojis,
+      active_reporters: activeReporters,
       off_track_passengers: offTrackReporters,
       last_update: new Date().toISOString()
     });
@@ -749,8 +831,9 @@ io.on('connection', socket => {
 
   // Stop tracking event
   socket.on('bus:stop_tracking', ({ busId = 'BUS-01', deviceId }) => {
+    let reps = null;
     if (busReporters.has(busId)) {
-      const reps = busReporters.get(busId);
+      reps = busReporters.get(busId);
       if (deviceId) {
         reps.delete(deviceId);
       } else {
@@ -759,9 +842,34 @@ io.on('connection', socket => {
     }
     const bus = db.getBus(busId);
     if (bus) {
-      bus.status = 'IDLE';
+      const allActive = reps ? Array.from(reps.values()) : [];
+      const busCluster = find20MeterCluster(allActive);
+      const isBusConfirmed = busCluster.length >= MIN_BUS_PASSENGERS;
+      bus.is_bus_confirmed = isBusConfirmed;
+      bus.passenger_count = busCluster.length;
+      bus.passenger_emojis = busCluster.map(r => r.emoji || '😎');
+      if (!isBusConfirmed) {
+        bus.status = 'IDLE';
+      }
       db.persist();
-      io.emit('bus:status_change', { bus_id: busId, status: 'IDLE' });
+
+      io.emit('bus:location_update', {
+        bus_id: busId,
+        is_bus_confirmed: isBusConfirmed,
+        passenger_count: busCluster.length,
+        passenger_emojis: busCluster.map(r => r.emoji || '😎'),
+        status: bus.status,
+        active_reporters: allActive.map(r => ({
+          device_id: r.deviceId,
+          emoji: r.emoji,
+          name: r.name,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          in_bus: isBusConfirmed && busCluster.some(c => c.deviceId === r.deviceId)
+        })),
+        last_update: new Date().toISOString()
+      });
+      io.emit('bus:status_change', { bus_id: busId, status: bus.status });
     }
   });
 

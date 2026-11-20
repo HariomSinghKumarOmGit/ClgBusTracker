@@ -2961,13 +2961,23 @@
       "status": "IDLE",
       "current_trip_id": null,
       "last_known_location": {
-        "latitude": 28.464094197299968,
-        "longitude": 77.50286594403258,
-        "speed_kmh": 0,
-        "heading": 259,
-        "accuracy_meters": 55,
-        "timestamp": "2026-11-20T08:39:49.385Z"
-      }
+        "latitude": 28.520722,
+        "longitude": 77.201514,
+        "raw_latitude": 28.520722,
+        "raw_longitude": 77.201514,
+        "is_on_track": true,
+        "out_of_track_count": 0,
+        "distance_to_track_m": 0,
+        "speed_kmh": 9,
+        "heading": 285,
+        "accuracy_meters": 5,
+        "timestamp": "2026-11-20T14:47:36.949Z"
+      },
+      "is_bus_confirmed": false,
+      "passenger_count": 0,
+      "passenger_emojis": [],
+      "out_of_track_count": 0,
+      "is_on_track": true
     }
   ],
   "drivers": [

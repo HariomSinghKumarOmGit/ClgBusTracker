@@ -21,9 +21,24 @@ export interface BusLocationTelemetry extends LocationCoordinates {
 export interface OffTrackPassenger {
   device_id: string;
   emoji: string;
+  name?: string;
   latitude: number;
   longitude: number;
   accuracy_meters?: number;
+  in_bus?: boolean;
+}
+
+export interface ActiveReporter {
+  device_id: string;
+  emoji: string;
+  name?: string;
+  latitude: number;
+  longitude: number;
+  speed_kmh?: number;
+  heading?: number;
+  accuracy_meters?: number;
+  in_bus?: boolean;
+  distance_to_cluster?: number;
 }
 
 export interface Bus {
@@ -38,6 +53,9 @@ export interface Bus {
   last_known_location: BusLocationTelemetry;
   passenger_count?: number;
   passenger_emojis?: string[];
+  is_bus_confirmed?: boolean;
+  cluster_count?: number;
+  active_reporters?: ActiveReporter[];
   off_track_passengers?: OffTrackPassenger[];
 }
 
@@ -156,6 +174,7 @@ export interface BusScheduleRecord {
 // User Profile - Stored locally in browser LocalStorage
 export interface UserProfile {
   id: string;
+  device_code: string;
   name: string;
   phone: string;
   email?: string;

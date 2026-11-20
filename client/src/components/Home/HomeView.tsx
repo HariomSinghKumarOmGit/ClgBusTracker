@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapContainer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Bus, BusRoute, RouteStop, OffTrackPassenger } from '../../types';
-import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createAccuratePersonMarkerIcon, createOffTrackEmojiMarkerIcon } from '../Map/CustomMarkers';
-import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2, MapPin } from 'lucide-react';
+import { Bus, BusRoute, RouteStop, OffTrackPassenger, ActiveReporter, UserProfile } from '../../types';
+import { createImage1BusMarkerIcon, createImage1StopMarkerIcon, createAccuratePersonMarkerIcon, createOffTrackEmojiMarkerIcon, createRiderMarkerIcon } from '../Map/CustomMarkers';
+import { X, Pin, Bell, Navigation as NavIcon, Radio, CheckCircle2, MapPin, Sparkles, RefreshCw } from 'lucide-react';
 import { GoogleMapTileLayer, GoogleMapZoomButtons, GoogleMapLayerSelector, LiveTrafficBadge } from '../Map/MapControls';
 import { MapTheme, DEFAULT_MAP_THEME } from '../Map/mapConfig';
 import { InsideBusController } from '../Bus/InsideBusController';
@@ -20,6 +20,8 @@ interface HomeViewProps {
   onOpenStopSelector?: () => void;
   userEmoji?: string;
   userStopName?: string;
+  userProfile?: UserProfile;
+  onSwitchDeviceProfile?: () => void;
 }
 
 function MapViewController({
@@ -72,7 +74,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenAlerts,
   onOpenStopSelector,
   userEmoji = '😎',
-  userStopName = '15th'
+  userStopName = '15th',
+  userProfile,
+  onSwitchDeviceProfile
 }) => {
   const [recenterCount, setRecenterCount] = useState(0);
   const [fitRouteCount, setFitRouteCount] = useState(0);
@@ -100,6 +104,44 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [isPersonOnTrack, setIsPersonOnTrack] = useState<boolean>(() => backgroundTracker.getState().isOnTrack);
   const [personLocation, setPersonLocation] = useState<[number, number] | null>(null);
   const [personAccuracy, setPersonAccuracy] = useState<number | null>(null);
+
+  // 20-METER CONSENSUS STATUS:
+  // "if there are less than three people in 20 metre radius then they are not in bus,
+  // even though they have checked that they are in bus, but if there are like more than three people
+  // in 20 metre radius, they are in bus... only emoji of bus when there are three or more people inside 20 metre radius, else don't shown that"
+  const isBusConfirmed = Boolean(bus?.is_bus_confirmed && (bus.passenger_count || 0) >= 3);
+  const [simRidersActive, setSimRidersActive] = useState<boolean>(() => backgroundTracker.getSimulatedNearbyRidersCount() >= 2);
+
+  const handleToggleSimulatedRiders = () => {
+    if (simRidersActive) {
+      backgroundTracker.setSimulatedNearbyRiders(0);
+      setSimRidersActive(false);
+      showToast('Simulation: Extra test riders removed (<3 in 20m -> Bus hidden)');
+    } else {
+      backgroundTracker.setSimulatedNearbyRiders(2);
+      setSimRidersActive(true);
+      showToast('Simulation: +2 nearby riders in 20m added (>=3 in 20m -> 🚌 Bus emoji appears!)');
+    }
+  };
+
+  const activeReporters = useMemo(() => {
+    const list: ActiveReporter[] = bus?.active_reporters ? [...bus.active_reporters] : [];
+    if (isInsideBus && personLocation && userProfile) {
+      const exists = list.some(r => r.device_id === userProfile.device_code);
+      if (!exists) {
+        list.push({
+          device_id: userProfile.device_code,
+          emoji: activeUserEmoji,
+          name: userProfile.name,
+          latitude: personLocation[0],
+          longitude: personLocation[1],
+          accuracy_meters: personAccuracy || 5,
+          in_bus: isBusConfirmed
+        });
+      }
+    }
+    return list;
+  }, [bus?.active_reporters, isInsideBus, personLocation, userProfile, activeUserEmoji, personAccuracy, isBusConfirmed]);
 
   const [currentBusCoord, setCurrentBusCoord] = useState<[number, number]>(() => {
     if (bus?.last_known_location) {
@@ -397,6 +439,55 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* FULL MAP VIEW (Modern Live Google Maps) */}
       <div className="flex-1 w-full relative">
+        {/* Live 20-Meter Consensus Banner */}
+        <div className="absolute top-2 left-3 right-3 z-[450] pointer-events-auto">
+          <div className={`p-2.5 rounded-2xl shadow-xl backdrop-blur-md border text-xs flex items-center justify-between transition-all ${
+            isBusConfirmed
+              ? 'bg-emerald-950/95 border-emerald-500/60 text-white'
+              : (activeReporters.length > 0 
+                  ? 'bg-amber-950/95 border-amber-500/60 text-amber-100'
+                  : 'bg-slate-900/90 border-slate-700/60 text-slate-300')
+          }`}>
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="text-xl shrink-0">
+                {isBusConfirmed ? '🚌' : (activeReporters.length > 0 ? '📍' : '⏳')}
+              </span>
+              <div className="truncate">
+                <div className="font-black text-[11px] leading-tight flex items-center gap-1.5 truncate">
+                  <span>{isBusConfirmed ? 'BUS CONFIRMED • ON BOARD' : (activeReporters.length > 0 ? 'NOT IN BUS • NEED 3+ IN 20m' : 'NO RIDERS ACTIVE')}</span>
+                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-black shrink-0 ${
+                    isBusConfirmed ? 'bg-emerald-500/30 text-emerald-300' : 'bg-amber-500/30 text-amber-300'
+                  }`}>
+                    {isBusConfirmed ? `${bus?.passenger_count || 3} riders in 20m` : `${activeReporters.length}/3 riders`}
+                  </span>
+                </div>
+                <div className="text-[9.5px] opacity-85 leading-tight truncate mt-0.5">
+                  {isBusConfirmed 
+                    ? `${bus?.passenger_count || 3} people within 20m radius detected inside bus!`
+                    : (activeReporters.length > 0
+                        ? `${activeReporters.length} active device(s), but <3 within 20m radius -> Bus icon hidden`
+                        : 'Tap "I\'m Inside Bus" below to share location')}
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Simulation Testing Button */}
+            {isInsideBus && (
+              <button
+                onClick={handleToggleSimulatedRiders}
+                className={`ml-2 px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all active:scale-95 shrink-0 whitespace-nowrap shadow-sm ${
+                  simRidersActive 
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400' 
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400'
+                }`}
+                title="Quickly test: add +2 simulated riders within 20m radius to trigger bus presence"
+              >
+                {simRidersActive ? 'Reset Test' : '+2 Riders (<20m)'}
+              </button>
+            )}
+          </div>
+        </div>
+
         <MapContainer
           ref={setMapInstance}
           center={currentBusCoord}
@@ -409,7 +500,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <GoogleMapTileLayer theme={mapTheme} />
 
           <MapViewController
-            busCoord={currentBusCoord}
+            busCoord={isBusConfirmed ? currentBusCoord : (personLocation || currentBusCoord)}
             personCoord={personLocation}
             recenterTrigger={recenterCount}
             fitRouteTrigger={fitRouteCount}
@@ -452,56 +543,46 @@ export const HomeView: React.FC<HomeViewProps> = ({
             }}
           />
 
-          {/* GPS Accuracy Circle — Shown when user is tracking */}
-          {isInsideBus && personLocation && personAccuracy && (
-            <Circle
-              center={personLocation}
-              radius={personAccuracy}
-              pathOptions={{
-                color: isPersonOnTrack ? '#2563eb' : '#d97706',
-                fillColor: isPersonOnTrack ? '#3b82f6' : '#f59e0b',
-                fillOpacity: 0.16,
-                weight: 1.5,
-                dashArray: '3, 6'
-              }}
-            />
-          )}
-
-          {/* Off-Track Passenger: Shown by EMOJI (not by bus) when off the route track */}
-          {isInsideBus && personLocation && !isPersonOnTrack && (
-            <Marker position={personLocation} icon={createOffTrackEmojiMarkerIcon(activeUserEmoji)}>
-              <Popup closeButton={false}>
-                <div className="text-center font-bold text-xs p-1 min-w-[150px]">
-                  <p className="text-amber-700">📍 Off Route: {activeUserEmoji}</p>
-                  <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
-                    Showing your emoji location (not bus)
-                  </p>
-                  <p className="text-[9px] text-slate-400 font-mono mt-0.5">
-                    {personLocation[0].toFixed(6)}, {personLocation[1].toFixed(6)}
-                  </p>
-                </div>
-              </Popup>
-            </Marker>
-          )}
-
-          {/* Connected Off-Track Passengers from Other Devices: Shown by Emoji */}
-          {((bus as any)?.off_track_passengers as OffTrackPassenger[] | undefined)?.map((otp) => {
-            if (isInsideBus && personLocation && Math.abs(otp.latitude - personLocation[0]) < 0.0001 && Math.abs(otp.longitude - personLocation[1]) < 0.0001) {
-              return null;
-            }
+          {/* Individual Active Rider Pins with 20-Meter Radius Circle — Shown when < 3 people in 20m radius */}
+          {(!isBusConfirmed || activeReporters.some(r => !r.in_bus)) && activeReporters.map((rider) => {
+            if (isBusConfirmed && rider.in_bus) return null; // Clustered in bus marker
+            const isSelf = rider.device_id === userProfile?.device_code;
             return (
-              <Marker
-                key={otp.device_id}
-                position={[otp.latitude, otp.longitude]}
-                icon={createOffTrackEmojiMarkerIcon(otp.emoji || '😎')}
-              >
-                <Popup closeButton={false}>
-                  <div className="p-1 text-center font-bold text-xs">
-                    <p className="text-amber-700 font-bold">Passenger {otp.emoji}</p>
-                    <p className="text-[10px] text-slate-500">Off bus route</p>
-                  </div>
-                </Popup>
-              </Marker>
+              <React.Fragment key={rider.device_id}>
+                {/* 20-Meter Detection Radius Circle */}
+                <Circle
+                  center={[rider.latitude, rider.longitude]}
+                  radius={20}
+                  pathOptions={{
+                    color: isSelf ? '#2563eb' : '#059669',
+                    fillColor: isSelf ? '#3b82f6' : '#10b981',
+                    fillOpacity: 0.16,
+                    weight: 1.5,
+                    dashArray: '3, 6'
+                  }}
+                />
+                {/* Rider Marker with Emoji + Particular Device Code */}
+                <Marker
+                  position={[rider.latitude, rider.longitude]}
+                  icon={createRiderMarkerIcon(rider.emoji || '😎', rider.device_id, isSelf)}
+                  zIndexOffset={500}
+                >
+                  <Popup closeButton={false}>
+                    <div className="p-1.5 text-center font-bold text-xs min-w-[150px]">
+                      <div className="flex items-center justify-center gap-1.5 mb-1">
+                        <span className="text-base">{rider.emoji}</span>
+                        <span className="font-mono text-xs font-black text-slate-800">{rider.device_id}</span>
+                      </div>
+                      <div className="bg-amber-50 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-200">
+                        Not in Bus (&lt;3 in 20m)
+                      </div>
+                      <p className="text-[9.5px] text-slate-500 mt-1">
+                        {isSelf ? 'Your Device' : rider.name || 'Nearby Device'} • 20m detection radius
+                      </p>
+                    </div>
+                  </Popup>
+                </Marker>
+              </React.Fragment>
             );
           })}
 
@@ -543,40 +624,42 @@ export const HomeView: React.FC<HomeViewProps> = ({
             );
           })}
 
-          {/* LIVE MOVING BUS MARKER (Image 1 Style with Numbered Emoji Dot below) */}
-          <Marker
-            position={currentBusCoord}
-            icon={createImage1BusMarkerIcon({
-              countdownText: `${nextStopInfo.etaMinutes}m`,
-              status: isNavigating ? 'MOVING' : (bus?.status || 'MOVING'),
-              passengerCount: (bus as any)?.passenger_count ?? (isInsideBus && isPersonOnTrack ? 1 : 1),
-              passengerEmojis: (bus as any)?.passenger_emojis && (bus as any).passenger_emojis.length > 0
-                ? (bus as any).passenger_emojis
-                : [activeUserEmoji]
-            })}
-            zIndexOffset={1000}
-          >
-            <Popup closeButton={false}>
-              <div className="p-2 min-w-[180px] text-center">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-black text-sm text-[#1e3a8a]">{bus?.number || 'Bus 01'}</span>
-                  <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full">
-                    LIVE {bus?.last_known_location?.speed_kmh ?? 0} km/h
-                  </span>
+          {/* LIVE MOVING BUS MARKER — STRICTLY SHOWN ONLY WHEN 3 OR MORE PEOPLE ARE WITHIN 20-METER RADIUS */}
+          {isBusConfirmed && (
+            <Marker
+              position={currentBusCoord}
+              icon={createImage1BusMarkerIcon({
+                countdownText: `${nextStopInfo.etaMinutes}m`,
+                status: isNavigating ? 'MOVING' : (bus?.status || 'MOVING'),
+                passengerCount: (bus as any)?.passenger_count ?? 3,
+                passengerEmojis: (bus as any)?.passenger_emojis && (bus as any).passenger_emojis.length > 0
+                  ? (bus as any).passenger_emojis
+                  : [activeUserEmoji]
+              })}
+              zIndexOffset={1000}
+            >
+              <Popup closeButton={false}>
+                <div className="p-2 min-w-[180px] text-center">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-black text-sm text-[#1e3a8a]">{bus?.number || 'Bus 01'}</span>
+                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full">
+                      LIVE {bus?.last_known_location?.speed_kmh ?? 0} km/h
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-800">
+                    Next: {nextStopInfo.name}
+                  </p>
+                  <p className="text-[11px] text-blue-600 font-semibold mt-0.5">
+                    Arriving in ~{nextStopInfo.etaMinutes} mins ({nextStopInfo.distKm} km)
+                  </p>
+                  <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span>{currentBusCoord[0].toFixed(5)}, {currentBusCoord[1].toFixed(5)}</span>
+                    <span>{bus?.plate_number || 'DL 1P B 4022'}</span>
+                  </div>
                 </div>
-                <p className="text-xs font-bold text-slate-800">
-                  Next: {nextStopInfo.name}
-                </p>
-                <p className="text-[11px] text-blue-600 font-semibold mt-0.5">
-                  Arriving in ~{nextStopInfo.etaMinutes} mins ({nextStopInfo.distKm} km)
-                </p>
-                <div className="mt-1 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                  <span>{currentBusCoord[0].toFixed(5)}, {currentBusCoord[1].toFixed(5)}</span>
-                  <span>{bus?.plate_number || 'DL 1P B 4022'}</span>
-                </div>
-              </div>
-            </Popup>
-          </Marker>
+              </Popup>
+            </Marker>
+          )}
         </MapContainer>
 
         {/* Floating Modern Google Maps Zoom In / Zoom Out Buttons */}

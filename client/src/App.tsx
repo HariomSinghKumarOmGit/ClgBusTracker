@@ -4,13 +4,14 @@ import { NavTab, Bus, BusRoute, RouteStop, Driver, UserProfile } from './types';
 import { api } from './services/api';
 import { socket } from './services/socket';
 import { backgroundTracker, TrackerState } from './services/backgroundTracker';
+import { getOrCreateDeviceProfile, createNewDeviceProfile, saveDeviceProfile } from './utils/deviceProfile';
 import { HomeView } from './components/Home/HomeView';
 import { TransitExploreView } from './components/Map/TransitExploreView';
 import { DriverDetailsView } from './components/Driver/DriverDetailsView';
 import { ProfileView } from './components/Profile/ProfileView';
 import { BottomNavBar } from './components/Navigation/BottomNavBar';
 import { RideAlertsModal } from './components/Modals/RideAlertsModal';
-import { Square, Zap, Bus as BusIcon } from 'lucide-react';
+import { Square, Zap, Bus as BusIcon, RefreshCw, Smartphone } from 'lucide-react';
 
 const DEFAULT_ROUTE_01: BusRoute = {
   id: 'ROUTE-01',
@@ -88,7 +89,12 @@ export function App() {
       setBus(prev => ({
         ...prev,
         status: data.status || (updatedLoc.speed_kmh > 3 ? 'MOVING' : 'STOPPED'),
-        last_known_location: updatedLoc
+        last_known_location: updatedLoc,
+        is_bus_confirmed: data.is_bus_confirmed !== undefined ? Boolean(data.is_bus_confirmed) : prev.is_bus_confirmed,
+        passenger_count: data.passenger_count !== undefined ? Number(data.passenger_count) : prev.passenger_count,
+        passenger_emojis: data.passenger_emojis || prev.passenger_emojis || [],
+        active_reporters: data.active_reporters || prev.active_reporters || [],
+        off_track_passengers: data.off_track_passengers || prev.off_track_passengers || []
       }));
 
       setBuses(prev => prev.map(b => {
@@ -96,7 +102,12 @@ export function App() {
           return {
             ...b,
             status: data.status || (updatedLoc.speed_kmh > 3 ? 'MOVING' : 'STOPPED'),
-            last_known_location: updatedLoc
+            last_known_location: updatedLoc,
+            is_bus_confirmed: data.is_bus_confirmed !== undefined ? Boolean(data.is_bus_confirmed) : b.is_bus_confirmed,
+            passenger_count: data.passenger_count !== undefined ? Number(data.passenger_count) : b.passenger_count,
+            passenger_emojis: data.passenger_emojis || b.passenger_emojis || [],
+            active_reporters: data.active_reporters || b.active_reporters || [],
+            off_track_passengers: data.off_track_passengers || b.off_track_passengers || []
           };
         }
         return b;
@@ -119,16 +130,12 @@ export function App() {
         if (fetchedBuses && fetchedBuses.length > 0) {
           const b01 = fetchedBuses.find(b => b.id === 'BUS-01' || b.number === '01' || b.number === 'Bus 01') || fetchedBuses[0];
           if (b01?.last_known_location) {
-            setBus(prev => {
-              if (
-                prev.last_known_location?.latitude !== b01.last_known_location.latitude ||
-                prev.last_known_location?.longitude !== b01.last_known_location.longitude ||
-                prev.last_known_location?.speed_kmh !== b01.last_known_location.speed_kmh
-              ) {
-                return b01;
-              }
-              return prev;
-            });
+            setBus(prev => ({
+              ...prev,
+              ...b01,
+              is_bus_confirmed: b01.is_bus_confirmed !== undefined ? b01.is_bus_confirmed : prev.is_bus_confirmed,
+              active_reporters: b01.active_reporters || prev.active_reporters || []
+            }));
           }
           setBuses(fetchedBuses);
         }
@@ -142,29 +149,20 @@ export function App() {
     };
   }, []);
 
-  // Local user profile state
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    try {
-      const saved = localStorage.getItem('bustracker_user_profile');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return {
-      id: 'usr_local_01',
-      name: 'Alex Rivera',
-      phone: '+91 98765 43210',
-      avatar_emoji: '😎',
-      role: 'commuter',
-      is_logged_in: true,
-      preferred_stop_id: 'STOP-01',
-      preferred_stop_name: 'Saket',
-      home_stop: 'Saket Metro',
-      work_campus_stop: 'Delhi Technical Campus',
-      saved_routes: ['01'],
-      notifications_enabled: true,
-      chime_alerts: true,
-      vibration_alerts: true
-    };
-  });
+  // Unique Device Profile (Each device/browser gets its own particular code and emoji)
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => getOrCreateDeviceProfile());
+
+  const handleSwitchDeviceProfile = () => {
+    const fresh = createNewDeviceProfile();
+    setUserProfile(fresh);
+    backgroundTracker.updateDeviceIdentity(fresh.device_code, fresh.avatar_emoji);
+  };
+
+  const handleUpdateProfile = (updated: UserProfile) => {
+    setUserProfile(updated);
+    saveDeviceProfile(updated);
+    backgroundTracker.updateDeviceIdentity(updated.device_code, updated.avatar_emoji);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -195,9 +193,31 @@ export function App() {
 
   return (
     <div className="h-full h-[100dvh] w-full max-w-md mx-auto bg-slate-100 flex flex-col font-sans overflow-hidden shadow-2xl relative select-none">
+      {/* Top Device Identity Bar — Unique profile & code for each device */}
+      <div className="bg-slate-900 text-white px-3 py-1.5 flex items-center justify-between border-b border-slate-800 text-xs z-[700] select-none shrink-0 shadow-sm">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <span className="text-sm shrink-0">{userProfile.avatar_emoji}</span>
+          <div className="flex items-center gap-1.5 truncate">
+            <span className="font-extrabold text-[11px] text-slate-100 truncate">{userProfile.name}</span>
+            <span className="bg-blue-600/80 text-blue-100 border border-blue-400/40 font-mono text-[9px] font-black px-1.5 py-0.2 rounded shrink-0">
+              {userProfile.device_code}
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleSwitchDeviceProfile}
+          className="flex items-center gap-1 text-[10px] text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-lg border border-white/10 active:scale-95 transition-all shrink-0"
+          title="Click to generate a different profile & code for this device"
+        >
+          <RefreshCw className="w-2.5 h-2.5" />
+          <span>New Code</span>
+        </button>
+      </div>
+
       {/* Global Background Travel Active Floating Bar (Visible when navigating other tabs while inside bus) */}
       {trackerState.isTracking && currentTab !== 'home' && (
-        <div className="absolute top-2 left-3 right-3 z-[800] bg-slate-900/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl p-2.5 px-3.5 shadow-2xl text-white flex items-center justify-between animate-fade-in">
+        <div className="absolute top-10 left-3 right-3 z-[800] bg-slate-900/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl p-2.5 px-3.5 shadow-2xl text-white flex items-center justify-between animate-fade-in">
           <div className="flex items-center gap-2">
             <div className="relative">
               <BusIcon className="w-4 h-4 text-emerald-400" />
@@ -242,6 +262,8 @@ export function App() {
             onOpenAlerts={() => setIsAlertsOpen(true)}
             userEmoji={userProfile.avatar_emoji}
             userStopName={userProfile.preferred_stop_name}
+            userProfile={userProfile}
+            onSwitchDeviceProfile={handleSwitchDeviceProfile}
           />
         )}
 
@@ -273,7 +295,8 @@ export function App() {
         {currentTab === 'profile' && (
           <div className="h-full w-full overflow-y-auto">
             <ProfileView
-              onProfileUpdate={(updated) => setUserProfile(updated)}
+              onProfileUpdate={handleUpdateProfile}
+              onSwitchDeviceProfile={handleSwitchDeviceProfile}
             />
           </div>
         )}

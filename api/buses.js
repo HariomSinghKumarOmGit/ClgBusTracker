@@ -32,6 +32,43 @@ function snapToSegment(lat, lng, polyline) {
   return { minDistance, snappedPoint };
 }
 
+function haversineDistMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// In-memory active reporters registry for serverless invocations
+globalThis.vercelReporters = globalThis.vercelReporters || new Map();
+
+function find20MeterCluster(reporters) {
+  if (!reporters || reporters.length === 0) return [];
+  let bestCluster = [];
+  for (let i = 0; i < reporters.length; i++) {
+    const anchor = reporters[i];
+    const inRadius = [anchor];
+    for (let j = 0; j < reporters.length; j++) {
+      if (i !== j) {
+        const dist = haversineDistMeters(anchor.latitude, anchor.longitude, reporters[j].latitude, reporters[j].longitude);
+        if (dist <= 20) {
+          inRadius.push(reporters[j]);
+        }
+      }
+    }
+    if (inRadius.length > bestCluster.length) {
+      bestCluster = inRadius;
+    }
+  }
+  return bestCluster;
+}
+
 const defaultBuses = [
   {
     id: "BUS-01",
@@ -103,50 +140,78 @@ export default function handler(req, res) {
     const busId = req.query.id || req.body.busId || req.body.id || 'BUS-01';
     const bus = defaultBuses.find(b => b.id === busId) || defaultBuses[0];
     
-    const { latitude, longitude, speed_kmh, heading, accuracy_meters, consecutiveOffTrackCount } = req.body || {};
+    const { deviceId = 'DEV-UNKNOWN', emoji = '😎', name, latitude, longitude, speed_kmh, heading, accuracy_meters } = req.body || {};
     if (latitude !== undefined && longitude !== undefined) {
-      const route = transitRoutes.find(r => r.id === bus.assigned_route_id) || transitRoutes[0];
-      const poly = route?.polyline || [];
-      const { minDistance, snappedPoint } = snapToSegment(Number(latitude), Number(longitude), poly);
-      const isOffTrack = minDistance > 50;
-
-      let outOfTrackCount = consecutiveOffTrackCount !== undefined 
-        ? Number(consecutiveOffTrackCount) 
-        : (bus.out_of_track_count || 0);
-
-      if (isOffTrack) {
-        outOfTrackCount += 1;
-      } else {
-        outOfTrackCount = 0;
+      if (!globalThis.vercelReporters.has(busId)) {
+        globalThis.vercelReporters.set(busId, new Map());
       }
-
-      bus.out_of_track_count = outOfTrackCount;
-
-      let finalLat, finalLng;
-      // Rule: Bus can move out of track ONLY if count >= 3. If < 3, keep bus on track!
-      if (outOfTrackCount >= 3) {
-        finalLat = Number(latitude);
-        finalLng = Number(longitude);
-        bus.is_on_track = false;
-      } else {
-        finalLat = snappedPoint[0];
-        finalLng = snappedPoint[1];
-        bus.is_on_track = true;
-      }
-
-      bus.status = (speed_kmh && speed_kmh > 3) ? 'MOVING' : 'STOPPED';
-      bus.last_known_location = {
-        latitude: finalLat,
-        longitude: finalLng,
-        raw_latitude: Number(latitude),
-        raw_longitude: Number(longitude),
-        is_on_track: bus.is_on_track,
-        out_of_track_count: outOfTrackCount,
+      const reps = globalThis.vercelReporters.get(busId);
+      const now = Date.now();
+      reps.set(deviceId, {
+        deviceId,
+        emoji,
+        name: name || deviceId,
+        latitude: Number(latitude),
+        longitude: Number(longitude),
         speed_kmh: Number(speed_kmh || 0),
         heading: Number(heading || 0),
         accuracy_meters: Number(accuracy_meters || 5),
-        timestamp: new Date().toISOString()
-      };
+        updatedAt: now
+      });
+
+      // Prune inactive
+      for (const [id, rep] of reps.entries()) {
+        if (now - rep.updatedAt > 25000) {
+          reps.delete(id);
+        }
+      }
+
+      const allActive = Array.from(reps.values());
+      const busCluster = find20MeterCluster(allActive);
+      const isBusConfirmed = busCluster.length >= 3;
+
+      const route = transitRoutes.find(r => r.id === bus.assigned_route_id) || transitRoutes[0];
+      const poly = route?.polyline || [];
+
+      if (isBusConfirmed) {
+        const clusterLat = busCluster.reduce((s, r) => s + r.latitude, 0) / busCluster.length;
+        const clusterLng = busCluster.reduce((s, r) => s + r.longitude, 0) / busCluster.length;
+        const { minDistance, snappedPoint } = snapToSegment(clusterLat, clusterLng, poly);
+        const finalLat = minDistance <= 50 ? snappedPoint[0] : clusterLat;
+        const finalLng = minDistance <= 50 ? snappedPoint[1] : clusterLng;
+
+        bus.is_bus_confirmed = true;
+        bus.status = (speed_kmh && speed_kmh > 3) ? 'MOVING' : 'STOPPED';
+        bus.passenger_count = busCluster.length;
+        bus.passenger_emojis = busCluster.map(r => r.emoji || '😎');
+        bus.last_known_location = {
+          latitude: finalLat,
+          longitude: finalLng,
+          raw_latitude: Number(latitude),
+          raw_longitude: Number(longitude),
+          is_on_track: minDistance <= 50,
+          speed_kmh: Number(speed_kmh || 0),
+          heading: Number(heading || 0),
+          accuracy_meters: Number(accuracy_meters || 5),
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        bus.is_bus_confirmed = false;
+        bus.status = 'IDLE';
+        bus.passenger_count = busCluster.length;
+        bus.passenger_emojis = busCluster.map(r => r.emoji || '😎');
+      }
+
+      bus.active_reporters = allActive.map(r => ({
+        device_id: r.deviceId,
+        emoji: r.emoji,
+        name: r.name,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        in_bus: isBusConfirmed && busCluster.some(c => c.deviceId === r.deviceId)
+      }));
+
+      return res.status(200).json({ success: true, bus, is_bus_confirmed: isBusConfirmed });
     }
     return res.status(200).json({ success: true, bus });
   }
@@ -155,8 +220,32 @@ export default function handler(req, res) {
   if (id) {
     const bus = defaultBuses.find(b => b.id === id);
     if (!bus) return res.status(404).json({ error: 'Bus not found' });
-    return res.status(200).json(bus);
+    const reps = globalThis.vercelReporters.get(id);
+    const allActive = reps ? Array.from(reps.values()) : [];
+    const busCluster = find20MeterCluster(allActive);
+    const isBusConfirmed = busCluster.length >= 3;
+    return res.status(200).json({
+      ...bus,
+      is_bus_confirmed: isBusConfirmed,
+      passenger_count: busCluster.length,
+      passenger_emojis: busCluster.map(r => r.emoji || '😎'),
+      active_reporters: allActive
+    });
   }
 
-  return res.status(200).json(defaultBuses);
+  const enriched = defaultBuses.map(bus => {
+    const reps = globalThis.vercelReporters.get(bus.id);
+    const allActive = reps ? Array.from(reps.values()) : [];
+    const busCluster = find20MeterCluster(allActive);
+    const isBusConfirmed = busCluster.length >= 3;
+    return {
+      ...bus,
+      is_bus_confirmed: isBusConfirmed,
+      passenger_count: busCluster.length,
+      passenger_emojis: busCluster.map(r => r.emoji || '😎'),
+      active_reporters: allActive
+    };
+  });
+
+  return res.status(200).json(enriched);
 }

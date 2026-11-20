@@ -384,11 +384,12 @@ export const api = {
     }
   },
 
-  async stopBusTracking(busId: string): Promise<void> {
+  async stopBusTracking(busId: string, deviceId?: string): Promise<void> {
     try {
       await fetch(`${API_BASE}/buses/${busId}/stop-tracking`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId })
       });
     } catch (e) {}
   },

@@ -132,12 +132,8 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className={`text-[10px] font-black tracking-wide uppercase ${trackerState.isOnTrack ? 'text-emerald-300' : (trackerState.consecutiveOffTrackCount >= 3 ? 'text-rose-400' : 'text-amber-300')}`}>
-                {trackerState.isOnTrack 
-                  ? 'ON TRACK' 
-                  : (trackerState.consecutiveOffTrackCount >= 3 
-                      ? 'OFF TRACK (DETOUR)' 
-                      : `OFF TRACK (${trackerState.consecutiveOffTrackCount}/3 • BUS ON TRACK)`)}
+              <span className="text-[9.5px] font-mono font-black text-emerald-300 tracking-tight uppercase">
+                {trackerState.deviceId}
               </span>
             </div>
             
@@ -163,7 +159,7 @@ export const InsideBusController: React.FC<InsideBusControllerProps> = ({
               </span>
               <span className="text-[10px] text-slate-300 font-normal">km/h</span>
             </div>
-            <span className="text-[10px] text-blue-300 font-bold">±{currentAcc}m</span>
+            <span className="text-[9.5px] text-blue-300 font-bold">20m Consensus Active</span>
           </div>
 
           <div className="flex items-center gap-1.5 pt-1 border-t border-white/10">

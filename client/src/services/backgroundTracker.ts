@@ -6,6 +6,7 @@ import { socket } from './socket';
 import { api } from './api';
 import { isPointOnTrack } from '../utils/geoUtils';
 import { snapToPolyline, OFF_TRACK_THRESHOLD_METERS } from '../utils/trackSnapping';
+import { getOrCreateDeviceProfile } from '../utils/deviceProfile';
 
 export interface TrackerLocationUpdate {
   latitude: number;
@@ -58,14 +59,8 @@ class BackgroundTrackerService {
     backgroundKeepAliveActive: false,
     gpsPermissionStatus: 'prompt',
     error: null,
-    userEmoji: typeof window !== 'undefined' ? (localStorage.getItem('clg_bus_user_emoji') || '😎') : '😎',
-    deviceId: typeof window !== 'undefined' 
-      ? (localStorage.getItem('clg_bus_device_id') || (() => {
-          const id = 'DEV-' + Math.random().toString(36).substring(2, 9);
-          localStorage.setItem('clg_bus_device_id', id);
-          return id;
-        })()) 
-      : 'DEV-DEFAULT',
+    userEmoji: typeof window !== 'undefined' ? getOrCreateDeviceProfile().avatar_emoji : '😎',
+    deviceId: typeof window !== 'undefined' ? getOrCreateDeviceProfile().device_code : 'DEV-DEFAULT',
     isOnTrack: true,
     consecutiveOffTrackCount: 0,
     isBusOffTrack: false
@@ -83,6 +78,7 @@ class BackgroundTrackerService {
   private lastCoord: { lat: number; lng: number; time: number } | null = null;
   private notificationRequested: boolean = false;
   private consecutiveOffTrackCount: number = 0;
+  private simulatedNearbyCount: number = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -123,6 +119,35 @@ class BackgroundTrackerService {
       localStorage.setItem('clg_bus_user_emoji', emoji);
     }
     this.notify();
+  }
+
+  updateDeviceIdentity(deviceId: string, emoji: string) {
+    this.state.deviceId = deviceId;
+    this.state.userEmoji = emoji;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('clg_bus_device_id', deviceId);
+      localStorage.setItem('clg_bus_user_emoji', emoji);
+    }
+    this.notify();
+  }
+
+  setSimulatedNearbyRiders(count: number) {
+    const prev = this.simulatedNearbyCount;
+    this.simulatedNearbyCount = Math.max(0, Math.min(4, count));
+    // If reducing count, tell server to stop extra simulated devices
+    if (prev > this.simulatedNearbyCount) {
+      for (let i = this.simulatedNearbyCount + 1; i <= prev; i++) {
+        socket.emit('bus:stop_tracking', { busId: this.state.busId, deviceId: `DEV-SIM-0${i}` });
+      }
+    }
+    if (this.state.currentLocation) {
+      this.broadcastSimulatedRiders(this.state.currentLocation.latitude, this.state.currentLocation.longitude);
+    }
+    this.notify();
+  }
+
+  getSimulatedNearbyRidersCount(): number {
+    return this.simulatedNearbyCount;
   }
 
   setMode(mode: 'real' | 'simulate') {
@@ -187,8 +212,13 @@ class BackgroundTrackerService {
     this.stopBackgroundKeepAlive();
 
     // Notify backend that tracking stopped
-    socket.emit('bus:stop_tracking', { busId: this.state.busId });
-    api.stopBusTracking(this.state.busId).catch(() => {});
+    socket.emit('bus:stop_tracking', { busId: this.state.busId, deviceId: this.state.deviceId });
+    api.stopBusTracking(this.state.busId, this.state.deviceId).catch(() => {});
+    if (this.simulatedNearbyCount > 0) {
+      for (let i = 1; i <= this.simulatedNearbyCount; i++) {
+        socket.emit('bus:stop_tracking', { busId: this.state.busId, deviceId: `DEV-SIM-0${i}` });
+      }
+    }
 
     this.state.isTracking = false;
     this.state.currentLocation = null;
@@ -407,6 +437,36 @@ class BackgroundTrackerService {
         heading: update.heading,
         accuracy_meters: update.accuracy
       } as any).catch(() => {});
+    }
+
+    // 3. Broadcast any extra nearby simulated riders (within 5-10 meters, strictly within 20m radius)
+    if (this.simulatedNearbyCount > 0) {
+      this.broadcastSimulatedRiders(update.latitude, update.longitude);
+    }
+  }
+
+  private broadcastSimulatedRiders(baseLat: number, baseLng: number) {
+    const simRiders = [
+      { id: 'DEV-SIM-01', emoji: '🧑‍🎓', name: 'Rider #SIM1', dLat: 0.000045, dLng: 0.000040 }, // ~6 meters away
+      { id: 'DEV-SIM-02', emoji: '🦊', name: 'Rider #SIM2', dLat: -0.000050, dLng: 0.000035 }, // ~7 meters away
+      { id: 'DEV-SIM-03', emoji: '🚀', name: 'Rider #SIM3', dLat: 0.000030, dLng: -0.000060 }, // ~8 meters away
+      { id: 'DEV-SIM-04', emoji: '🎧', name: 'Rider #SIM4', dLat: -0.000040, dLng: -0.000045 }, // ~7 meters away
+    ];
+
+    for (let i = 0; i < this.simulatedNearbyCount; i++) {
+      const rider = simRiders[i];
+      socket.emit('bus:send_location', {
+        busId: this.state.busId,
+        deviceId: rider.id,
+        emoji: rider.emoji,
+        name: rider.name,
+        isOnTrack: this.state.isOnTrack,
+        latitude: baseLat + rider.dLat,
+        longitude: baseLng + rider.dLng,
+        speed_kmh: this.state.currentLocation?.speedKmh || 0,
+        heading: this.state.currentLocation?.heading || 0,
+        accuracy_meters: 5
+      });
     }
   }
 
